@@ -1,0 +1,213 @@
+
+%required Data
+accpath   = '/ronne_1/home/morlighe/issmjpl/proj-morlighem/DatasetAntarctica/Data/RACMO2Accumulation/SMBAntarctica/basin_Antarctica_1km_RACMO2.mat';
+accpath   = ['/proj/ecco/ModelData/RACMO2Antarctica/annprecip33.mat'];
+datadir= '/Users/jbec0008/SAEF/datasets/';
+
+disp('   Interpolating mask');
+% mex([issmdir() '/src/m/contrib/morlighem/modeldata/InterpFromGrid.cpp']);
+
+p_vel = '/Users/jbec0008/SAEF/datasets/bedrock/';
+vel_set ="BedMachineAntarcticav3_plusSECschroeder1992_plusSmithfloat.nc"
+bedm = fullfile(p_vel, vel_set);
+mask = interpBedmachineAntarctica(md.mesh.x,md.mesh.y,'mask','nearest',bedm);
+
+
+%    Get necessary data to build up the velocity grid
+% 	mask:flag_values = 0b, 1b, 2b, 3b, 4b ;
+% 	mask:flag_meanings = "ocean ice_free_land grounded_ice floating_ice lake_vostok" ;
+
+p_vel = '/Users/jbec0008/SAEF/datasets/bedrock/bedmap/';
+vel_set ="bedmap2_1km_justTHW_thk_mask_usurf.nc"
+
+bamb = fullfile(p_vel, vel_set);
+mask_bamber = interpBedmachineAntarctica(md.mesh.x,md.mesh.y,'mask','nearest',bamb);
+thickness_bamber = interpBedmachineAntarctica(md.mesh.x,md.mesh.y,'thk','cubic',bamb);
+surface_bamber = interpBedmachineAntarctica(md.mesh.x,md.mesh.y,'usurf','cubic',bamb);
+
+same_shelf_mask = (md.mask.ice_levelset == -1) & (mask_bamber ==1);
+extra_shelf_mask_int = mask_bamber -same_shelf_mask;
+extra_shelf_mask = extra_shelf_mask_int ==1;
+
+
+% mask = interpBedmachineAntarctica(md.mesh.x,md.mesh.y,'mask','nearest','2019-11-05_v01');
+md.mask.ice_levelset         = -1*ones(md.mesh.numberofvertices,1);% ice is present when negative 
+md.mask.ocean_levelset = +1*ones(md.mesh.numberofvertices,1);%ice is grounded when postive
+pos = find(mask<1); %we also want a bit of ice where there are rocks (and lake, thats why <1 and not <2!)
+md.mask.ice_levelset(pos)=1;
+pos = find(mask==0 | mask==3);
+md.mask.ocean_levelset(pos)=-1; %negtive for ocean and floating ice and positive everywhere else assumign grounded ice!
+%shelf extra mask:
+md.mask.ice_levelset(extra_shelf_mask) = -1;   
+md.mask.ocean_levelset(extra_shelf_mask) = -1;%is floating ice   
+pos = find(md.mesh.vertexonboundary);
+md.mask.ice_levelset(pos)=1;
+ 
+
+
+disp('   Setting up geometry');
+md.geometry.bed       = interpBedmachineAntarctica(md.mesh.x,md.mesh.y,'bed','cubic',bedm);
+md.geometry.surface   = interpBedmachineAntarctica(md.mesh.x,md.mesh.y,'surface','cubic',bedm);
+md.geometry.thickness = interpBedmachineAntarctica(md.mesh.x,md.mesh.y,'thickness','cubic',bedm);
+md.geometry.thickness(extra_shelf_mask) = thickness_bamber(extra_shelf_mask); 
+md.geometry.surface(extra_shelf_mask) = surface_bamber(extra_shelf_mask); 
+md.geometry.base = md.geometry.surface - md.geometry.thickness;
+
+disp('      -- no firn correction needed with bedmachine surface');
+md.geometry.surface=max(md.geometry.surface,1);
+md.geometry.thickness = md.geometry.surface-md.geometry.base;
+
+disp('      -- Adjusting ice thickness');
+pos=find(md.geometry.thickness<=10);
+md.geometry.thickness(pos)=10;
+md.geometry.base=md.geometry.surface-md.geometry.thickness;
+pos=find(md.geometry.base<md.geometry.bed);
+md.geometry.bed(pos) = md.geometry.base(pos);
+
+disp('      -- ice shelf base based on hydrostatic equilibrium');
+floating_base=md.materials.rho_ice/(md.materials.rho_ice-md.materials.rho_water)*md.geometry.surface;
+pos = find(floating_base>md.geometry.bed);%there should be floating ice
+md.geometry.base(pos)   = floating_base(pos);%adjust ice base to calculated thickness base
+di=md.materials.rho_ice/md.materials.rho_water;
+md.geometry.thickness=md.geometry.surface-md.geometry.base;
+md.mask.ocean_levelset=md.geometry.thickness+md.geometry.bed/di;
+%line above: actual thickness + calculated grounded Thickness (negative) gives:
+%>0 grounded ice
+%<0 floating ice 
+% gives thickenss above flotation!
+
+
+pos=find(md.geometry.base<md.geometry.bed | md.mask.ocean_levelset>0);
+md.geometry.bed(pos) = md.geometry.base(pos);
+
+disp('   Adjusting ice mask');
+%Tricky part here: we want to offset the mask by one element so that we don't end up with a cliff at the transition
+pos = find(max(md.mask.ice_levelset(md.mesh.elements),[],2)>0);
+md.mask.ice_levelset(md.mesh.elements(pos,:)) = 1;
+% For the region where surface is NaN, set thickness to small value (consistency requires >0)
+pos=find((md.mask.ice_levelset<0).*(md.geometry.surface<0));
+md.mask.ice_levelset(pos)=1;
+pos=find((md.mask.ice_levelset<0).*(isnan(md.geometry.surface)));
+md.mask.ice_levelset(pos)=1;
+
+%Finally kill icebergs!
+disp('   Removing icebergs');
+md.mask.ice_levelset = killberg(md);
+
+disp('   Reading velocities ');
+%[md.inversion.vx_obs md.inversion.vy_obs]=interpMouginotAnt2019(md.mesh.x,md.mesh.y);
+% [md.inversion.vx_obs md.inversion.vy_obs] = interpMeasures_withnans(md,md.mesh.x,md.mesh.y,'nearest');
+% [md.inversion.vx_obs md.inversion.vy_obs] = interpMeasureschange_withnans(md,md.mesh.x,md.mesh.y,'nearest');
+[md.inversion.vx_obs md.inversion.vy_obs] = interpMeasureschange_withnansLowVel(md,md.mesh.x,md.mesh.y,'nearest');
+pos=find(isnan(md.inversion.vx_obs) | isnan(md.inversion.vy_obs));
+md.inversion.vx_obs(pos)=0;
+md.inversion.vy_obs(pos)=0;
+md.inversion.vel_obs  = sqrt(md.inversion.vx_obs.^2+md.inversion.vy_obs.^2);
+md.initialization.vx  = md.inversion.vx_obs;
+md.initialization.vy  = md.inversion.vy_obs;
+md.initialization.vz  = zeros(md.mesh.numberofvertices,1);
+md.initialization.vel = md.inversion.vel_obs;
+
+%Basal friction
+disp('   Initialize basal friction using driving stress');
+disp('      -- Compute surface slopes and use 10 L2 projections');
+[sx,sy,s]=slope(md); sslope=averaging(md,s,10);
+disp('      -- Process surface velocity data');
+vel = md.inversion.vel_obs;
+flags=(vel==0); pos1=find(flags); pos2=find(~flags);
+vel(pos1) = griddata(md.mesh.x(pos2),md.mesh.y(pos2),vel(pos2),md.mesh.x(pos1),md.mesh.y(pos1));
+vel=max(vel,0.1);
+disp('      -- Calculate effective pressure');
+Neff = md.materials.rho_ice*md.geometry.thickness+md.materials.rho_water*md.geometry.base;
+Neff(find(Neff<=0))=1;
+disp('      -- Deduce friction coefficient');
+md.friction.coefficient=sqrt(md.materials.rho_ice*md.geometry.thickness.*(sslope)./(Neff.*vel/md.constants.yts));
+md.friction.coefficient=min(md.friction.coefficient,400);
+md.friction.p = ones(md.mesh.numberofelements,1);
+md.friction.q = ones(md.mesh.numberofelements,1);
+disp('      -- Extrapolate on ice free regions');
+flags=(md.mask.ice_levelset>0); pos1=find(flags); pos2=find(~flags);
+md.friction.coefficient(pos1) = griddata(md.mesh.x(pos2),md.mesh.y(pos2),md.friction.coefficient(pos2),md.mesh.x(pos1),md.mesh.y(pos1));
+pos=find(isnan(md.friction.coefficient));
+md.friction.coefficient(pos)  = 1;
+
+%%flow law
+%disp('   Creating flow law parameters (assume ice is at -10°C for now)');
+%md.materials.rheology_n = 3*ones(md.mesh.numberofelements,1);
+%md.materials.rheology_B = buddjacka(273.15 - 10)*ones(md.mesh.numberofvertices,1);
+%md.materials.rheology_law = 'buddjacka';
+%flow law
+disp('   Creating flow law parameters (assume ice is at -10°C for now)');
+md.materials.rheology_n = 3*ones(md.mesh.numberofelements,1);
+md.materials.rheology_B = cuffey(273.15 - 10)*ones(md.mesh.numberofvertices,1);
+md.materials.rheology_law = 'Cuffey';
+
+disp('   Loading accumulation rates from RACMO ');
+md.smb.mass_balance=interpRacmoSMB(md,datadir);
+%load(accpath);
+%if 0,
+%	md.smb.mass_balance = InterpFromGridToMesh(x_m,y_m,accumulation,md.mesh.x,md.mesh.y,-99999);
+%	clear x_m y_m accumulation
+%else
+%	index=delaunay(x1,y1);
+%	md.smb.mass_balance = InterpFromMeshToMesh2d(index,x1(:),y1(:),annprecip33(:),md.mesh.x,md.mesh.y,'default',NaN);
+%	clear x1 y1 index
+% end
+md.basalforcings.groundedice_melting_rate = zeros(md.mesh.numberofvertices,1);
+md.basalforcings.floatingice_melting_rate= zeros(md.mesh.numberofvertices,1);
+disp('   Loading melting rates from remote sensing observations:');
+pos=find(md.mask.ocean_levelset<0);
+% md.basalforcings.floatingice_melting_rate(pos) = interpRignotIceShelfMelt(md.mesh.x(pos),md.mesh.y(pos),'melt_steadystate');
+md.basalforcings.floatingice_melting_rate(pos) =my_nonlocal_ISMIP6melt(md.mesh.x(pos),md.mesh.y(pos));
+% first intep for nans in floting ice
+% pos =md.mask.ocean_levelset <0;
+% pos_nan = isnan(md.basalforcings.floatingice_melting_rate);
+% pos_nonan = ~isnan(md.basalforcings.floatingice_melting_rate);
+% pos3=pos & pos_nan;
+% pos4=pos & pos_nonan;
+% md.basalforcings.floatingice_melting_rate(pos3) = griddata(md.mesh.x(pos4),md.mesh.y(pos4),md.basalforcings.floatingice_melting_rate(pos4),md.mesh.x(pos3),md.mesh.y(pos3),'nearest');
+pos=find(md.mask.ocean_levelset>0);
+pos2=find(md.mask.ocean_levelset<0);
+md.basalforcings.floatingice_melting_rate(pos) = griddata(md.mesh.x(pos2),md.mesh.y(pos2),md.basalforcings.floatingice_melting_rate(pos2),md.mesh.x(pos),md.mesh.y(pos),'nearest');
+% % nonans
+% pos3 = isnan(md.basalforcings.floatingice_melting_rate);
+% pos4 = ~isnan(md.basalforcings.floatingice_melting_rate);
+% md.basalforcings.floatingice_melting_rate(pos3) = griddata(md.mesh.x(pos4),md.mesh.y(pos4),md.basalforcings.floatingice_melting_rate(pos4),md.mesh.x(pos3),md.mesh.y(pos3),'nearest');
+
+
+%% disp('   Geothermal flux from Shapiro et al.');
+%% % md.basalforcings.geothermalflux=interpSeaRISE(md.mesh.x,md.mesh.y,'bheatflx_shapiro',-1);
+disp('   Set geothermal heat flux');
+md.basalforcings.geothermalflux=interpStaal(md,md.mesh.x,md.mesh.y,datadir,'nearest');
+% delete negative values
+pos = md.basalforcings.geothermalflux <0;
+md.basalforcings.geothermalflux(pos) =0; 
+
+disp('   Setting up thermal model');
+md.initialization.temperature=min(273.15,interpRacmoTemp1995_2014(md,datadir));%Racmodataset is in K
+md.initialization.waterfraction=zeros(md.mesh.numberofvertices,1);
+md.initialization.watercolumn=zeros(md.mesh.numberofvertices,1);
+md.thermal.spctemperature=md.initialization.temperature;
+md.thermal.isenthalpy=1;
+md.thermal.isdynamicbasalspc=1;
+
+%%Deal with boundary conditions:
+disp('   Set Boundary conditions');
+md.stressbalance.spcvx=NaN*ones(md.mesh.numberofvertices,1);
+md.stressbalance.spcvy=NaN*ones(md.mesh.numberofvertices,1);
+md.stressbalance.spcvz=NaN*ones(md.mesh.numberofvertices,1);
+md.stressbalance.referential=NaN*ones(md.mesh.numberofvertices,6);
+md.stressbalance.loadingforce=0*ones(md.mesh.numberofvertices,3);
+pos=find((md.mask.ice_levelset<0).*(md.mesh.vertexonboundary));
+md.stressbalance.spcvx(pos)=md.initialization.vx(pos);
+md.stressbalance.spcvy(pos)=md.initialization.vy(pos);
+md.stressbalance.spcvz(pos)=0;
+
+
+
+
+%disp('   Set boundary conditions');
+%md=SetMarineIceSheetBC(md);
+%md.masstransport.spcthickness = NaN*ones(md.mesh.numberofvertices,1);
+%md.groundingline.friction_interpolation='SubelementFriction2';
+%md.groundingline.melt_interpolation='NoMeltOnPartiallyFloating';
