@@ -1,0 +1,10 @@
+raw_data
+preprocessed_data
+init/Models/*
+init/*.errlog
+init/*.outlog
+init/*.log
+init/*.bin
+init/*.tar.gz
+init/*.queue
+init/*.toolkits

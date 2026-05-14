@@ -7,7 +7,7 @@ function md=run_func(steps,loadonly)
 
 
     % loadonly = 1;
-    addpath('./../scripts');
+    addpath('./scripts');
 
 
     sec_to_year = 31556926;
@@ -25,10 +25,12 @@ function md=run_func(steps,loadonly)
   inputmodel_path = './../AIS_1850/Models/AIS1850_thTHW_CollapseSSA.mat';
   basin_shelf_mask = './../Data/Ocean/basinid_iceshelf_extrap_davision_interpnearest.mat';
   inputmodel_relax = '/Volumes/CrucialX8/computing/data/antarctica/AIS_1850_with_Justine/Models/Testfirst_test_Relax_20y_ocean_local_param.mat';
+  path_dir = '/g/data/au88/jb1863/SAEF/ISMIP7_ISSM_Monash/init/./../scripts '
   directory = 'Data/Tables';
   if ~exist(directory, 'dir')
       mkdir(directory);
   end
+  %OLD procedure,new new input data
     if perform(org,'Param'),% {{{
 
         md=loadmodel('./../ISMIP6/Models/ISMIP6Antarctica_Mesh.mat');
@@ -610,11 +612,12 @@ if perform(org,'CollapseSSA'),% {{{
     % mds.mesh =md1.mesh;
     savemodel(org,mds);
 end% }}}
-%new c friciton interplation
-    if perform(org,'RunInitSSACollapse')% {{{
+%new c friciton interplation, and assigning SMB ans BMB IMSIP7 observartion
+    if perform(org,'RunInitSSACollapse')% {{
 
-       md=loadmodel(org,'CollapseSSA');
+
         
+        md=loadmodel('./Models/AIS_pd_cmaxCollapseSSA.mat');
         % what is done her with the 1 ?
         m=((1+sin(71*pi/180))*ones(md.mesh.numberofvertices,1)./(1+sin(abs(md.mesh.lat)*pi/180)));
         md.mesh.scale_factor=(1./m).^2;
@@ -638,14 +641,30 @@ end% }}}
         md.groundingline.migration = 'SubelementMigration';
         md.groundingline.friction_interpolation='SubelementFriction1';
         md.groundingline.melt_interpolation='SubelementMelt1';
+        md.miscellaneous.name = 'TESTbeofreISMIP7prep'
         
         clustername = 'gadi';
         cluster = set_cluster(clustername);
         md.cluster=cluster;
-        md.settings.waitonlock=Inf; 
+        md.settings.waitonlock=0; 
+        md.settings.waitonlock=0;
         md.verbose=verbose('solution',true,'module',true,'convergence',true);
-        md=solve(md,'tr');
-
-        savemodel(org,md);
-        plot_after_tuning(7,md);
+        md=solve(md,'tr','runtimename',false,'loadonly',loadonly);
+        if loadonly 
+            savemodel(org,md);
+        end
+% plot_after_tuning(7,md);
     end %}}}
+    if perform(org,'constant_0.5cmean_from_Collapse'),% {{{
+
+
+
+       md=loadmodel('./Models/AIS_pd_cmaxCollapseSSA.mat');
+       p = 0.5;
+       c_ground =mean(md.friction.coefficient(md.mask.ocean_levelset>0));
+       md.friction.coefficient(md.mask.ocean_levelset<0)=p*c_ground;
+       disp(c_ground);
+       savemodel(org,md);
+
+    end% }}}
+
