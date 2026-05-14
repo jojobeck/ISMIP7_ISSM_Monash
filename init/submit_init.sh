@@ -8,8 +8,8 @@
 #PBS -m ae
 #PBS -l wd
 #PBS -l software=matlab_monash
-#PBS -o modelEnsemble.outlog
-#PBS -e modelEnsemble.errlog
+#PBS -o SubmitInit.outlog
+#PBS -e SubmitInit.errlog
 #PBS -l storage=gdata/au88
 
 export ISSM_DIR=/home/565/jb1863/trunk

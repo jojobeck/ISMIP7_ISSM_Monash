@@ -641,7 +641,7 @@ end% }}}
         md.groundingline.migration = 'SubelementMigration';
         md.groundingline.friction_interpolation='SubelementFriction1';
         md.groundingline.melt_interpolation='SubelementMelt1';
-        md.miscellaneous.name = 'TESTbeofreISMIP7prep'
+        md.miscellaneous.name = 'TESTbeforeISMIP7prep'
         
         clustername = 'gadi';
         cluster = set_cluster(clustername);
@@ -655,6 +655,7 @@ end% }}}
         end
 % plot_after_tuning(7,md);
     end %}}}
+    %%%%%%%% ISMIP 7 input
     if perform(org,'constant_0.5cmean_from_Collapse'),% {{{
 
 
@@ -664,7 +665,20 @@ end% }}}
        c_ground =mean(md.friction.coefficient(md.mask.ocean_levelset>0));
        md.friction.coefficient(md.mask.ocean_levelset<0)=p*c_ground;
        disp(c_ground);
+       md.miscellaneous.name = 'CollapseSSACmean0.5'
        savemodel(org,md);
 
     end% }}}
+    %Interpolate Forcing files
+    %SMB mean 1995-2015
+    %SMB hist 1995-2015
+    %BMB obs
+    %TF hist 1995 -2015
+    % TF mean 1995 -2015
+    %relax for 2 years with SMB mean and BMB obs
+
+    %run BMB tuning iteration with tune_BMB_allK.m
+    %determine settings K mean ,5 and 95 percentile
+    %with settings K mean ,TF and SMB hist run hist
+    %Correkt SMB for mass changes after Otosaka
 
