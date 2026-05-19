@@ -613,7 +613,7 @@ if perform(org,'CollapseSSA'),% {{{
     savemodel(org,mds);
 end% }}}
 %new c friciton interplation, and assigning SMB ans BMB IMSIP7 observartion
-    if perform(org,'RunInitSSACollapse')% {{
+    if perform(org,'RunInitSSACollapse')% {{{
 
 
         
@@ -655,26 +655,137 @@ end% }}}
         end
 % plot_after_tuning(7,md);
     end %}}}
-    %%%%%%%% ISMIP 7 input
-    if perform(org,'constant_0.5cmean_from_Collapse'),% {{{
-
-
+    %%%%%%%% ISMIP 7 (step 15+)
+    if perform(org,'SMB_clim_1995_2014')% {{{
+    md=loadmodel('./Models/AIS_pd_cmaxCollapseSSA.mat');
+                                            
+    m=((1+sin(71*pi/180))*ones(md.mesh.numberofvertices,1)./(1+sin(abs(md.mesh.lat)*pi/180)));
+    md.mesh.scale_factor=(1./m).^2;         
+                                            
+    md.inversion.iscontrol=0;               
+    md.transient.isthermal=0;               
+    md.transient.isgroundingline=1;         
+    md.masstransport.spcthickness=NaN*ones(md.mesh.numberofvertices,1);
+                                            
+    % disp('loading TS and SMB climatology data');
+    smbclimnc_lonlat           = ['./../raw_data/nc_orig/Atmosphere/' 'smb_rec.mean.1995-2014.RACMO2.3p2_ANT27_ERA5-3h.AIS.2km.YY.nc'];
+    % lat                 = double(ncread(smbclimnc_lonlat,'lat'));
+    % lon                 = double(ncread(smbclimnc_lonlat,'lon'));
+    x_n_coarse                 = double(ncread(smbclimnc_lonlat,'x'));
+    y_n_coarse                 = double(ncread(smbclimnc_lonlat,'y'));
+                                            
+    smb_clim_data       = double(ncread(smbclimnc_lonlat,'smb_rec'));% in mm w.e. in year
+                                            
+    rhoi = md.materials.rho_ice;%917            
+    smb_clim=InterpFromGridToMesh(x_n_coarse,y_n_coarse,smb_clim_data',md.mesh.x,md.mesh.y,0);
+    smb_clim    = smb_clim*(1/rhoi);%from mm water equivalent in year to m/year 
+                                            
+    temp_matrix_smb = [smb_clim];           
+                                            
+    md.smb.mass_balance       =smb_clim;                                                                                                                                                                                                                                        
+    racmo_2km_smb_1995_2014_mean           = md.smb.mass_balance;
+    save('./../preprocessed_data/Atmosphere/Clim/racmo_rec_smb_2km_1995_2014_mean.mat','racmo_2km_smb_1995_2014_mean');
+    end %}}}
+    if perform(org,'constant_0.5cmeanBMB_SMB_from_Collapse'),% {{{
 
        md=loadmodel('./Models/AIS_pd_cmaxCollapseSSA.mat');
+       pos=find(md.mask.ocean_levelset<0);
+       %gelt ISMIP7 melt per basin
+       md.basalforcings.floatingice_melting_rate(pos) =Obs_ISMIP7melt(md.mesh.x(pos),md.mesh.y(pos));    
+       rhoi = md.materials.rho_ice;
+       md.basalforcings.floatingice_melting_rate(pos) = md.basalforcings.floatingice_melting_rate(pos) *(1/rhoi);%from kg/a in m/a
+       %interpolate for grounded areas in case of retreat:
+       pos=find(md.mask.ocean_levelset>0);
+       pos2=find(md.mask.ocean_levelset<0);
+       md.basalforcings.floatingice_melting_rate(pos) = griddata(md.mesh.x(pos2),md.mesh.y(pos2),md.basalforcings.floatingice_melting_rate(pos2),md.mesh.x(pos),md.mesh.y(pos),'nearest');% kg/a
+
+       %interpolate fricion coefficent in case of advance
        p = 0.5;
        c_ground =mean(md.friction.coefficient(md.mask.ocean_levelset>0));
        md.friction.coefficient(md.mask.ocean_levelset<0)=p*c_ground;
        disp(c_ground);
        md.miscellaneous.name = 'CollapseSSACmean0.5'
+       load('./../preprocessed_data/Atmosphere/Clim/racmo_rec_smb_2km_1995_2014_mean.mat');
+       md.smb.mass_balance=racmo_2km_smb_1995_2014_mean;
        savemodel(org,md);
+       plot_init_BmbSmbC(md, org);
 
     end% }}}
     %Interpolate Forcing files
-    %SMB mean 1995-2015
+    %SMB mean 1995-2014
     %SMB hist 1995-2015
+    if perform(org,'SMB_hist_obe')% {{{
+        %get model
+        md= loadmodel(inputmodel);
+        rhoi = md.materials.rho_ice;
+        %get smb_mean correction
+        dataname ='racmo_smb_1995_2014_mean_corrected'
+        save_path = [p_load dataname];
+        load(save_path);
+        smb_clim = racmo_smb_1995_2014_mean_corrected;
+        %load nc forcing
+        nc_path = './../Data/nc_orig/Atmosphere/ATMO_HISTO/'
+        forcing_run = ['MAR-IPSL-CM6A-LR-r' num2str(run) '_asmb_1850-2059_histo_regrid_04000m.nc']
+        
+        m=((1+sin(71*pi/180))*ones(md.mesh.numberofvertices,1)./(1+sin(abs(md.mesh.lat)*pi/180)));
+        md.mesh.scale_factor=(1./m).^2;
+        
+        md.inversion.iscontrol=0;
+        md.transient.isthermal=0;
+        md.transient.isgroundingline=1;
+	    md.masstransport.spcthickness=NaN*ones(md.mesh.numberofvertices,1);
+        disp('loading TS and SMB anomoly data');
+        smbanomnc           = [nc_path forcing_run];
+        smb_anomaly_data    = double(ncread(smbanomnc,'asmb'));%m/d
+        x_n                 = double(ncread(smbanomnc,'x'));
+        y_n                 = double(ncread(smbanomnc,'y'));
+        %beware the unit is m/d if we interp from Grid it adjusted with area size from Gid
+        %need unit in m^-2
+
+        %Create SMB and TS matrix
+        t=[1:size(smb_anomaly_data,3)];
+        % [x_n y_n]=ll2xy(lat(:,1),lon(:,1),-1);
+        % y_n = x_n;
+        temp_matrix_smb = []; 
+        for i = 1:size(smb_anomaly_data,3)
+            % disp(i);
+            %SMB
+            temp_smb        = InterpFromGridToMesh(x_n,y_n,smb_anomaly_data(:,:,i)',md.mesh.x,md.mesh.y,0);%m/day
+            temp_smb        = temp_smb*day_to_year;%m/year
+            temp_smb        = temp_smb+smb_clim;
+            temp_matrix_smb = [temp_matrix_smb temp_smb];
+            clear temp_smb;
+        end
+
+        %Save Data (1995-2100)
+        md.smb.mass_balance       = [temp_matrix_smb ; t];
+        forcing_mat_name = ['MAR_IPSL_CM6A_LR_r' num2str(run) '_smb_1850_2059_histo'];
+        % Store the mass balance in a structure using the dynamic variable name
+        forcing_struct.(forcing_mat_name) = md.smb.mass_balance;
+        % Define the save path
+        save_path = fullfile(pth_save, 'ATMO_HIST', forcing_mat_name);
+
+
+        % Save the structure with the variable
+        save(save_path, '-struct', 'forcing_struct', forcing_mat_name);
+
+    end %}}}
+
     %BMB obs
     %TF hist 1995 -2015
     % TF mean 1995 -2015
+    %Prepare Calving mask cmask_greene
+if perform(org,'collapse_mask_green')% {{{
+
+    md=loadmodel(inputmodel_path);
+    load  'Data/Ocean/ice_front_bedmachien.mat';
+	temp_matrix_isc = [];
+	temp_matrix_isc  = [temp_matrix_isc md.mask.ice_levelset];
+	temp_matrix_isc  = [temp_matrix_isc icemask_bedmachine_2002];
+    t = [7,9];
+	collapse_Thw_2002 = [temp_matrix_isc ; t];
+	save('Data/Ocean/collapse_Thw_2002.mat','collapse_Thw_2002');
+end %}}}
     %relax for 2 years with SMB mean and BMB obs
 
     %run BMB tuning iteration with tune_BMB_allK.m
