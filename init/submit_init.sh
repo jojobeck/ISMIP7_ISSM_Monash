@@ -24,7 +24,7 @@ module load matlab/R2021b
 module load matlab_licence/monash
 # source $ISSM_DIR/scripts/startup.sh
 
-steps=[16]
+steps=[18]
 loadonly=[0]
 matlab -nodisplay -nosplash -r "addpath('$ISSM_DIR/src/m/dev'); devpath; addpath('$ISSM_DIR/lib'); outputDir='$PBS_JOBFS'; numberOfWorkers=$PBS_NCPUS; run('tuning_func($steps, $loadonly)') , quit" >FuncInit.log
 # runs=[31]

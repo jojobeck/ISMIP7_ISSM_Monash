@@ -656,6 +656,7 @@ end% }}}
 % plot_after_tuning(7,md);
     end %}}}
     %%%%%%%% ISMIP 7 (step 15+)
+    %SMB mean 1995-2014
     if perform(org,'SMB_clim_1995_2014')% {{{
     md=loadmodel('./Models/AIS_pd_cmaxCollapseSSA.mat');
                                             
@@ -698,7 +699,8 @@ end% }}}
        pos=find(md.mask.ocean_levelset>0);
        pos2=find(md.mask.ocean_levelset<0);
        md.basalforcings.floatingice_melting_rate(pos) = griddata(md.mesh.x(pos2),md.mesh.y(pos2),md.basalforcings.floatingice_melting_rate(pos2),md.mesh.x(pos),md.mesh.y(pos),'nearest');% kg/a
-
+       % Final cleanup before plotting
+       md.basalforcings.floatingice_melting_rate(~isfinite(md.basalforcings.floatingice_melting_rate)) = 0;
        %interpolate fricion coefficent in case of advance
        p = 0.5;
        c_ground =mean(md.friction.coefficient(md.mask.ocean_levelset>0));
@@ -708,11 +710,62 @@ end% }}}
        load('./../preprocessed_data/Atmosphere/Clim/racmo_rec_smb_2km_1995_2014_mean.mat');
        md.smb.mass_balance=racmo_2km_smb_1995_2014_mean;
        savemodel(org,md);
-       plot_init_BmbSmbC(md, org);
+       name=[org.steps(org.currentstep-1).string];
+       plot_init_BmbSmbC(md, name);
 
     end% }}}
+    if perform(org,'Relax_long')% {{{
+
+
+        
+        md=loadmodel('./Models/AIS_ISMIP7_constant_0.5cmeanBMB_SMB_from_Collapse');
+        % what is done her with the 1 ?
+        m=((1+sin(71*pi/180))*ones(md.mesh.numberofvertices,1)./(1+sin(abs(md.mesh.lat)*pi/180)));
+        md.mesh.scale_factor=(1./m).^2;
+
+        md.inversion.iscontrol=0;
+        md.transient.isgroundingline=1;
+        % what is done her with the 1 ?
+        md.masstransport.spcthickness=NaN*ones(md.mesh.numberofvertices,1);
+        md.outputdefinition.definitions={};
+        md.timestepping.interp_forcing=0;
+        md.transient.isthermal=0;	
+
+        md.timestepping.final_time=50;
+        md.timestepping.time_step=1/12.;
+        md.settings.output_frequency=1;
+
+        md.transient.requested_outputs={'default','IceVolume','IceVolumeAboveFloatation','GroundedArea','FloatingArea','TotalSmb','SmbMassBalance','TotalGroundedBmb','TotalFloatingBmb','BasalforcingsFloatingiceMeltingRate',...
+            'IceVolumeScaled','IceVolumeAboveFloatationScaled','GroundedAreaScaled','FloatingAreaScaled','TotalSmbScaled','TotalGroundedBmbScaled','TotalFloatingBmbScaled'};
+
+        %NoMeltOnPartiallyFloating results in blown up vertex in Wilkes Basin
+        md.groundingline.migration = 'SubelementMigration';
+        md.groundingline.friction_interpolation='SubelementFriction1';
+        md.groundingline.melt_interpolation='SubelementMelt1';
+        md.miscellaneous.name = 'Relax50'
+        
+        clustername = 'gadi';
+        cluster = set_cluster(clustername);
+        md.cluster=cluster;
+        md.settings.waitonlock=0;
+        md.verbose=verbose('solution',true,'module',true,'convergence',true);
+        md=solve(md,'tr','runtimename',false,'loadonly',loadonly);
+        if loadonly 
+            savemodel(org,md);
+        end
+% plot_after_tuning(7,md);
+    end %}}}
+    if perform(org,'PLot_Relax_long')% {{{
+
+
+        name =['AIS_ISMIP7_' org.steps(org.currentstep-1).string];
+
+        pth = ['./Models/' name '.mat'];
+        md=loadmodel(pth);
+        
+        plot_drift(md);
+    end %}}}
     %Interpolate Forcing files
-    %SMB mean 1995-2014
     %SMB hist 1995-2015
     if perform(org,'SMB_hist_obe')% {{{
         %get model

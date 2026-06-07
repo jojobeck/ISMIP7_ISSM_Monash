@@ -24,8 +24,11 @@ ydata = double(ncread(melt_nc,'y'));
  
 disp(['   -- ISMIP7 melt rate: loading' string]);
 data  = double(ncread(melt_nc,string));
+data = data';   % important if NetCDF says melt(y,x)
 % Remove crazy fill values / NaNs
 data(isnan(data)) = 0;                  
 disp(['   -- ISMIP7 lmelt rate interpolating' string]);
 output = InterpFromGrid(xdata,ydata,data,X(:),Y(:));
 output = reshape(output,size(X,1),size(X,2));
+% Important: preserve input shape
+% output = reshape(output, size(X));
