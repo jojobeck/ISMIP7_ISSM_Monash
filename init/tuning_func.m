@@ -24,7 +24,7 @@ function md=run_func(steps,loadonly)
   %%%%%%%%%% create forcing file ocean
   inputmodel_path = './../AIS_1850/Models/AIS1850_thTHW_CollapseSSA.mat';
   basin_shelf_mask = './../Data/Ocean/basinid_iceshelf_extrap_davision_interpnearest.mat';
-  inputmodel_relax = '/Volumes/CrucialX8/computing/data/antarctica/AIS_1850_with_Justine/Models/Testfirst_test_Relax_20y_ocean_local_param.mat';
+  inputmodel_relax = './Models/AIS_ISMIP7_Relaxed.mat';
   path_dir = '/g/data/au88/jb1863/SAEF/ISMIP7_ISSM_Monash/init/./../scripts '
   directory = 'Data/Tables';
   if ~exist(directory, 'dir')
@@ -753,7 +753,6 @@ end% }}}
         if loadonly 
             savemodel(org,md);
         end
-% plot_after_tuning(7,md);
     end %}}}
     if perform(org,'PLot_Relax_long')% {{{
 
@@ -765,10 +764,191 @@ end% }}}
         
         plot_drift(md);
     end %}}}
+    if perform(org,'Relaxed')% {{{
+
+
+        name =['AIS_ISMIP7_' org.steps(org.currentstep-2).string];
+
+        pth = ['./Models/' name '.mat'];
+        md_in=loadmodel(pth);
+        md = md_in;
+        %using relxation time of approx. 20 year (delta H smal DElat Vaf min , delat grA almost plateau)
+        i_t = 20;
+        base = md_in.results.TransientSolution(i_t).Base;
+        thickness = md_in.results.TransientSolution(i_t).Thickness;
+        surface = md_in.results.TransientSolution(i_t).Surface;
+        md.geometry.thickness = thickness;
+        md.geometry.surface = surface;
+        md.geometry.base = base;
+        md.mask.ocean_levelset= md_in.results.TransientSolution(i_t).MaskOceanLevelset; 
+        md.results.TransientSolution = [];
+        md.miscellaneous.name = 'Relaxed';
+        savemodel(org,md);
+
+    end %}}}
+    %Now tune for Bmlet
+    %get TF hit
+    %get tfhistmen
+    if perform(org,'Obs_clim_TF')% {{{
+        md=loadmodel(inputmodel_relax);
+        m=((1+sin(71*pi/180))*ones(md.mesh.numberofvertices,1)./(1+sin(abs(md.mesh.lat)*pi/180)));
+        md.mesh.scale_factor=(1./m).^2;
+        
+        
+        ocean_climTF = './../raw_data/ISMIP7/AIS/meltMIP/OI_Climatology_ismip8km_60m_tf_extrap.nc'
+        tfnc           = [ocean_climTF];
+        x_n            = double(ncread(tfnc,'x'));
+        y_n            = double(ncread(tfnc,'y'));
+        tf_data        = double(ncread(tfnc,'tf'));
+        z_data         = double(ncread(tfnc,'z'));
+
+        %Build tf cell array
+        tf = cell(1,1,size(tf_data,3));
+        t=1;
+
+        for i=1:size(tf_data,3)  %Iterate over depths
+          temp_matrix=[];
+          temp_tfdata=InterpFromGridToMesh(x_n,y_n,tf_data(:,:,i)',md.mesh.x,md.mesh.y,0);
+          temp_matrix = [temp_matrix temp_tfdata];
+          temp_matrix = [temp_matrix ; t];%need time axis , here =1 
+          tf(:,:)={temp_matrix};
+        end
+        clim_obs_tf = tf;
+        save('./../preprocessed_data/Ocean/Clim/Clim_obs_TF.mat','clim_obs_tf','-v7.3');
+
+end %}}}
+    if perform(org,'Assign_Basins')% {{{
+    md=loadmodel(inputmodel_relax);
+   
+    m=((1+sin(71*pi/180))*ones(md.mesh.numberofvertices,1)./(1+sin(abs(md.mesh.lat)*pi/180)));
+    md.mesh.scale_factor=(1./m).^2;
+    
+    md.inversion.iscontrol=0;
+    md.transient.isthermal=0;
+    md.transient.ismasstransport=1;
+    md.transient.isstressbalance=1;
+    md.transient.isgroundingline=1;
+    md.masstransport.spcthickness=NaN*ones(md.mesh.numberofvertices,1);
+   
+    %load basin
+    data_imbie='./../raw_data/ISMIP7/AIS/parameterisations/ocean/imbie2/basin_numbers_ismip2km_v2.nc'
+    basin_datanc=[data_imbie];
+% basinids                 = double(ncread(basin_datanc,'basinNumber'));%Beware starts with 0!
+    %takenfrom interpbedmachine
+   
+    xdata            = double(ncread(basin_datanc,'x'));
+    ydata            = double(ncread(basin_datanc,'y'));
+   
+    X=md.mesh.x;
+    Y=md.mesh.y;
+    offset=2;
+   
+    %%%%%%%%%%%%%%extrapolated ice shelf mask
+    % offset=1;
+      
+    xmin=min(X(:)); xmax=max(X(:));
+    posx=find(xdata<=xmax);
+    if isempty(posx), posx=numel(xdata); end
+    id1x=max(1,find(xdata>=xmin,1)-offset);
+    id2x=min(numel(xdata),posx(end)+offset);
+      
+    ymin=min(Y(:)); ymax=max(Y(:));
+    posy=find(ydata>=ymin);
+    if isempty(posy), posy=numel(ydata); end
+    id1y=max(1,find(ydata<=ymax,1)-offset);
+    id2y=min(numel(ydata),posy(end)+offset);
+      
+    data  = double(ncread(basin_datanc,'basinNumber',[id1x id1y],[id2x-id1x+1 id2y-id1y+1],[1 1]))';
+    xdata=xdata(id1x:id2x);
+    ydata=ydata(id1y:id2y);
+    basinid_vetices = InterpFromGrid(xdata,ydata,data,double(X),double(Y),'nearest');
+    %now get only values of nearest values,no means;
+    bvu =unique(basinid_vetices);
+    disp(size(bvu));
+    % test_why_nogood_shelves    
+    nbvu = bvu*0;
+    for i= 1:size(bvu)
+        bu = bvu(i);
+        msk = bu ==basinid_vetices;
+        nbvu(i)=sum(msk);
+    end
+    BasinoOnElements = basinid_vetices(md.mesh.elements);
+    Basin_element =BasinoOnElements(1:end,1);
+    Basin_element1 =BasinoOnElements(1:end,1);
+    Basin_element2 =BasinoOnElements(1:end,2);
+    Basin_element3 =BasinoOnElements(1:end,3);
+    % disp(num2str( size ( unique(Basin_element1) )));
+    % disp(num2str( size ( unique(Basin_element2) )));
+    % disp(num2str( size ( unique(Basin_element3) )));
+    for elem=1:md.mesh.numberofelements,
+        be= BasinoOnElements(elem,1:end); %three corner values
+        m = be(1) == be; %mask are all the same 
+        m2 = be(2) == be; %mask are all the same 
+        if sum(m)==3, %all the same values
+            Basin_element(elem)= be(1);
+        elseif sum(m)==2, % another similar to be(1)
+            Basin_element(elem) = be(1);
+        else,%check for 2 and 3
+            if sum(m2)==2,% 2 and 3 are similar 
+                Basin_element(elem)=be(2);
+            else,%m2 =1 and m=1, all three are differnt
+                %let us take the less represented ,but not one of the noshelf_davision!
+                % bu1 =nbvu( be(1));
+                % bu2 = nbvu(be(2));
+                % bu3 = nbvu(be(3));
+                bu1 = be(1);
+                bu2 = be(2);
+                bu3 = be(3);
+                % Combine the extracted values into an array
+                bu_values = [bu1, bu2, bu3];
+                %check if there are in no shelfs
+                [min_bu, min_idx] = min(bu_values);
+      
+                 % Get the associated be value
+                associated_be = bu_values(min_idx);
+      
+                Basin_element(elem)=associated_be;%take smallest shelf value
+            end
+        end
+    end
+    basinid = Basin_element;
+    uniq_bi = unique(Basin_element);
+    disp('check');
+    disp(size(uniq_bi));
+    disp(uniq_bi);
+    %original should for from 0 to 15   
+    full_set = 1:16;
+    id_replace = full_set;
+    
+    
+    % Display the results
+    basinid_new = basinid;
+
+    for i = 1:numel(uniq_bi)
+        basinid_new(basinid == uniq_bi(i)) = i;
+    end
+
+    basinid = basinid_new;    
+    
+    
+    basin_vertices= basinid_vetices;
+    
+    
+    
+    save('./../preprocessed_data/Ocean/Basins/Imbie2_extrap_2km_BasinOnElements','basinid');%shifted by 1
+    save('./../preprocessed_data/Ocean/Basins/Imbie2_extrap_2km_BasinOnVertices','basin_vertices');%not shiftef
+    save('./../preprocessed_data/Ocean/Basins/Imbie2_id_replace','id_replace');%how to shift back
+    
+
+
+
+
+end %}}}
     %Interpolate Forcing files
     %SMB hist 1995-2015
     if perform(org,'SMB_hist_obe')% {{{
         %get model
+        md=loadmodel(inputmodel_relax);
         md= loadmodel(inputmodel);
         rhoi = md.materials.rho_ice;
         %get smb_mean correction
@@ -825,7 +1005,6 @@ end% }}}
     end %}}}
 
     %BMB obs
-    %TF hist 1995 -2015
     % TF mean 1995 -2015
     %Prepare Calving mask cmask_greene
 if perform(org,'collapse_mask_green')% {{{
