@@ -817,6 +817,51 @@ end% }}}
         save('./../preprocessed_data/Ocean/Clim/Clim_obs_TF.mat','clim_obs_tf','-v7.3');
 
 end %}}}
+if perform(org, 'OceanModelling_clim_TF')% {{{
+
+    md = loadmodel(inputmodel_relax);
+    m = ((1+sin(71*pi/180))*ones(md.mesh.numberofvertices,1)./(1+sin(abs(md.mesh.lat)*pi/180)));
+    md.mesh.scale_factor = (1./m).^2;
+
+    ocean_files = {
+        'Naughten_FESOM_ACCESS_cold_TF.nc', ...
+        'Naughten_FESOM_ACCESS_warm_TF.nc',  ...
+        'Mathiot_NEMO_cold_v2_TF.nc',       ...
+        'Mathiot_NEMO_warm_v2_TF.nc'        ...
+    };
+
+    base_path  = './../raw_data/ISMIP7/AIS/parameterisations/ocean/ocean_modelling_data/';
+    save_path  = './../preprocessed_data/Ocean/Clim/';
+
+    for f = 1:length(ocean_files)
+
+        ocean_climTF = [base_path ocean_files{f}];
+
+        x_n     = double(ncread(ocean_climTF, 'x'));
+        y_n     = double(ncread(ocean_climTF, 'y'));
+        tf_data = double(ncread(ocean_climTF, 'thermal_forcing'));
+        z_data  = double(ncread(ocean_climTF, 'z'));
+
+        % Build tf cell array
+        clim_ocean_modelling_tf = cell(1,1,size(tf_data,3));
+        t = 1;
+
+        for i = 1:size(tf_data,3)  % Iterate over depths
+            temp_matrix = [];
+            temp_tfdata = InterpFromGridToMesh(x_n, y_n, tf_data(:,:,i)', md.mesh.x, md.mesh.y, 0);
+            temp_matrix = [temp_matrix temp_tfdata];
+            temp_matrix = [temp_matrix ; t];  % need time axis, here =1
+            clim_ocean_modelling_tf(:,:) = {temp_matrix};
+        end
+
+        % Get filename without extension and save
+        [~, fname, ~] = fileparts(ocean_climTF);
+        save([save_path fname '.mat'], 'clim_ocean_modelling_tf', '-v7.3');
+
+        fprintf('Saved: %s.mat\n', fname);
+    end
+
+end% }}}
     if perform(org,'Assign_Basins')% {{{
     md=loadmodel(inputmodel_relax);
    

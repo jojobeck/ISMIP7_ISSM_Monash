@@ -93,131 +93,145 @@ function md=meltMIp(steps,j,loadonly)
         
 
 end %}}}
-    if perform(org,'Assign_Basins')% {{{
-    md=loadmodel(inputmodel_relax);
-   
-    m=((1+sin(71*pi/180))*ones(md.mesh.numberofvertices,1)./(1+sin(abs(md.mesh.lat)*pi/180)));
-    md.mesh.scale_factor=(1./m).^2;
-    
-    md.inversion.iscontrol=0;
-    md.transient.isthermal=0;
-    md.transient.ismasstransport=1;
-    md.transient.isstressbalance=1;
-    md.transient.isgroundingline=1;
-    md.masstransport.spcthickness=NaN*ones(md.mesh.numberofvertices,1);
-   
-    %load basin
-    data_imbie='./../raw_data/ISMIP7/AIS/parameterisations/ocean/imbie2/basin_numbers_ismip2km_v2.nc'
-    basin_datanc=[data_imbie];
-% basinids                 = double(ncread(basin_datanc,'basinNumber'));%Beware starts with 0!
-    %takenfrom interpbedmachine
-   
-    xdata            = double(ncread(basin_datanc,'x'));
-    ydata            = double(ncread(basin_datanc,'y'));
-   
-    X=md.mesh.x;
-    Y=md.mesh.y;
-    offset=2;
-   
-    %%%%%%%%%%%%%%extrapolated ice shelf mask
-    % offset=1;
-      
-    xmin=min(X(:)); xmax=max(X(:));
-    posx=find(xdata<=xmax);
-    if isempty(posx), posx=numel(xdata); end
-    id1x=max(1,find(xdata>=xmin,1)-offset);
-    id2x=min(numel(xdata),posx(end)+offset);
-      
-    ymin=min(Y(:)); ymax=max(Y(:));
-    posy=find(ydata>=ymin);
-    if isempty(posy), posy=numel(ydata); end
-    id1y=max(1,find(ydata<=ymax,1)-offset);
-    id2y=min(numel(ydata),posy(end)+offset);
-      
-    data  = double(ncread(basin_datanc,'basinNumber',[id1x id1y],[id2x-id1x+1 id2y-id1y+1],[1 1]))';
-    xdata=xdata(id1x:id2x);
-    ydata=ydata(id1y:id2y);
-    basinid_vetices = InterpFromGrid(xdata,ydata,data,double(X),double(Y),'nearest');
-    %now get only values of nearest values,no means;
-    bvu =unique(basinid_vetices);
-    disp(size(bvu));
-    % test_why_nogood_shelves    
-    nbvu = bvu*0;
-    for i= 1:size(bvu)
-        bu = bvu(i);
-        msk = bu ==basinid_vetices;
-        nbvu(i)=sum(msk);
-    end
-    BasinoOnElements = basinid_vetices(md.mesh.elements);
-    Basin_element =BasinoOnElements(1:end,1);
-    Basin_element1 =BasinoOnElements(1:end,1);
-    Basin_element2 =BasinoOnElements(1:end,2);
-    Basin_element3 =BasinoOnElements(1:end,3);
-    % disp(num2str( size ( unique(Basin_element1) )));
-    % disp(num2str( size ( unique(Basin_element2) )));
-    % disp(num2str( size ( unique(Basin_element3) )));
-    for elem=1:md.mesh.numberofelements,
-        be= BasinoOnElements(elem,1:end); %three corner values
-        m = be(1) == be; %mask are all the same 
-        m2 = be(2) == be; %mask are all the same 
-        if sum(m)==3, %all the same values
-            Basin_element(elem)= be(1);
-        elseif sum(m)==2, % another similar to be(1)
-            Basin_element(elem) = be(1);
-        else,%check for 2 and 3
-            if sum(m2)==2,% 2 and 3 are similar 
-                Basin_element(elem)=be(2);
-            else,%m2 =1 and m=1, all three are differnt
-                %let us take the less represented ,but not one of the noshelf_davision!
-                % bu1 =nbvu( be(1));
-                % bu2 = nbvu(be(2));
-                % bu3 = nbvu(be(3));
-                bu1 = be(1);
-                bu2 = be(2);
-                bu3 = be(3);
-                % Combine the extracted values into an array
-                bu_values = [bu1, bu2, bu3];
-                %check if there are in no shelfs
-                [min_bu, min_idx] = min(bu_values);
-      
-                 % Get the associated be value
-                associated_be = bu_values(min_idx);
-      
-                Basin_element(elem)=associated_be;%take smallest shelf value
-            end
+    if perform(org,'create_BMB_gD'),% {{{
+        name=['bmelt_test' '_K_'  num2str(j)];
+        save_p = ['Models/MeltMIP' name];
+
+        disp('loading model ...');
+        disp(save_p);
+        %get the model run
+        md=loadmodel(save_p);
+        % Create the folder path
+        base_folder = 'Models/ModelNC'
+        folder_name = sprintf('BMBPresentDay');
+        full_folder_path = fullfile(base_folder, folder_name);
+        % Check if the folder exists, if not, create it
+        if ~exist(full_folder_path, 'dir')
+            mkdir(full_folder_path);
         end
-    end
-    basinid = Basin_element;
-    uniq_bi = unique(Basin_element);
-    disp('check');
-    disp(size(uniq_bi));
-    disp(uniq_bi);
-    %original should for from 0 to 15   
-    full_set = 1:16;
-    
-    
-    % Display the results
-    id_replace = full_set;
-    for i =1:size(uniq_bi),
-        val = uniq_bi(i);
-        m = basinid==val;
-        basinid(m)=i;
-        id_replace(i)=val;
-    end
-    
-    
-    basin_vertices= basinid_vetices;
-    
-    
-    
-    save('./../preprocessed_data/Ocean/Basins/Imbie2_extrap_2km_BasinOnElements','basinid');%shifted by 1
-    save('./../preprocessed_data/Ocean/Basins/Imbie2_extrap_2km_BasinOnVertices','basin_vertices');%not shiftef
-    save('./../preprocessed_data/Ocean/Basins/Imbie2_id_replace','id_replace');%how to shift back
-    
+        % Extract ice BMB
+        BMB= md.results.TransientSolution(end).BasalforcingsFloatingiceMeltingRate;%m/a
+        % Load full 761x761 grid extent from bedmachine file
+        bedmachineFile = '/home/565/jb1863/ismip6_2300/masks/af2_el_ismip6_ant_8km.nc';
+        xFull = double(ncread(bedmachineFile, 'x'));
+        yFull = double(ncread(bedmachineFile, 'y'));
+
+        % Interpolate to 8kmx8km grid
+        [dsBMB, xGrid, yGrid] = gridData(md, BMB, ...
+            'xRange', [min(xFull) max(xFull)], ...
+            'yRange', [min(yFull) max(yFull)]);
+        dsBMB = dsBMB *md.materials.rho_ice;
 
 
+        ncfile = fullfile(full_folder_path ,name +"_gridData_8km.nc");
+        %check if file exists, delete
+        if isfile(ncfile)
+            delete(ncfile);
+        end
 
+        % Create full variables
+        nccreate(ncfile,"x","Dimensions",{"x",length(xGrid)},"FillValue",NaN);
+        nccreate(ncfile,"y","Dimensions",{"y",length(yGrid)},"FillValue",NaN);
+        nccreate(ncfile, "melt_rate","Dimensions",{"x",length(xGrid),"y",length(yGrid)},"FillValue",NaN)
+        % Write grid data to NetCDF
+        ncwrite(ncfile,"y",yGrid);
+        ncwrite(ncfile,"x",xGrid);
+
+        ncwrite(ncfile,"melt_rate",transpose(dsBMB));
+    end% }}}
+    if perform(org,'create_BMB_gD_4km'),% {{{
+        name=['bmelt_test' '_K_'  num2str(j)];
+        save_p = ['Models/MeltMIP' name];
+
+        disp('loading model ...');
+        disp(save_p);
+        %get the model run
+        md=loadmodel(save_p);
+        % Create the folder path
+        base_folder = 'Models/ModelNC'
+        folder_name = sprintf('BMBPresentDay_4km');
+        full_folder_path = fullfile(base_folder, folder_name);
+        % Check if the folder exists, if not, create it
+        if ~exist(full_folder_path, 'dir')
+            mkdir(full_folder_path);
+        end
+        % Extract ice BMB
+        BMB= md.results.TransientSolution(end).BasalforcingsFloatingiceMeltingRate;%m/a
+        % Interpolate to 4kmx4km grid
+        [dsBMB, xGrid, yGrid] = gridData_4km(md, BMB);
+        dsBMB = dsBMB *md.materials.rho_ice;
+
+
+        ncfile = fullfile(full_folder_path ,name +"_gridData_4km.nc");
+        %check if file exists, delete
+        if isfile(ncfile)
+            delete(ncfile);
+        end
+
+        % Create full variables
+        nccreate(ncfile,"x","Dimensions",{"x",length(xGrid)},"FillValue",NaN);
+        nccreate(ncfile,"y","Dimensions",{"y",length(yGrid)},"FillValue",NaN);
+        nccreate(ncfile, "melt_rate","Dimensions",{"x",length(xGrid),"y",length(yGrid)},"FillValue",NaN)
+        % Write grid data to NetCDF
+        ncwrite(ncfile,"y",yGrid);
+        ncwrite(ncfile,"x",xGrid);
+
+        ncwrite(ncfile,"melt_rate",transpose(dsBMB));
+    end% }}}
+    if perform(org,'melt_run_OCeanModelling_Nw')% {{{
+        md=loadmodel(inputmodel_relax);
+        m=((1+sin(71*pi/180))*ones(md.mesh.numberofvertices,1)./(1+sin(abs(md.mesh.lat)*pi/180)));
+        md.mesh.scale_factor=(1./m).^2;
+        
+        % what is done her with the 1 ?
+        md.transient.ismasstransport=1;
+        md.transient.isstressbalance=0;
+     
+        md.inversion.iscontrol=0;
+        md.transient.isgroundingline=0;
+        % what is done her with the 1 ?                                                                                                                                                                                   
+        md.masstransport.spcthickness=NaN*ones(md.mesh.numberofvertices,1);
+        md.outputdefinition.definitions={};
+        md.timestepping.interp_forcing=0;
+        md.transient.isthermal=0;   
+        md.transient.issmb =0;
+     
+        md.timestepping.final_time=1;
+        md.timestepping.time_step=1.;
+        md.settings.output_frequency=1;
+     
+        md.transient.requested_outputs={'default','TotalFloatingBmb','BasalforcingsFloatingiceMeltingRate'};
+     
+        load './../preprocessed_data/Ocean/Basins/Imbie2_extrap_2km_BasinOnElements.mat';
+        load './../preprocessed_data/Ocean/tf_depths.mat';
+        load('./../preprocessed_data/Ocean/Clim/Naughten_FESOM_ACCESS_warm_TF.mat')
+         %Set ISMIP6 basal melt rate parameters
+        gamma0_median = K_data(j)/gT_to_K;
+        unique_basinid = unique(basinid);
+        delta_t = 0 * ones(1, length(unique_basinid)); %no correction in dT
+     
+        md.basalforcings            = basalforcingsismip6(md.basalforcings);
+        md.basalforcings.basin_id   = basinid;
+        md.basalforcings.num_basins = length(unique(basinid));
+        md.basalforcings.tf_depths  = tf_depths;
+        md.basalforcings.tf         = clim_ocean_modelling_tf;
+        md.basalforcings.islocal = 1;
+        md.basalforcings.delta_t    = delta_t;
+        md.basalforcings.gamma_0    = gamma0_median;
+     
+        md.miscellaneous.name=['bmelt_OceanModelling_Nw' '_K_'  num2str(j)];
+        clustername = 'gadi';
+        cluster = set_cluster(clustername);
+        md.cluster=cluster;
+        md.settings.waitonlock=0; 
+        md.verbose=verbose('solution',true,'module',true,'convergence',false);
+        md=solve(md,'tr','runtimename',false,'loadonly',loadonly);
+        if loadonly
+            savepth = ['Models/MeltMIP' md.miscellaneous.name];
+            save(savepth,'md');
+        end
+
+        
 
 end %}}}
-    %SMB hist 1995-2015:wq
 

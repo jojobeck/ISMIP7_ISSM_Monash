@@ -24,9 +24,15 @@ module load matlab/R2021b
 module load matlab_licence/monash
 # source $ISSM_DIR/scripts/startup.sh
 
-steps=[1]
+steps=[4]
 loadonly=[1]
 # matlab -nodisplay -nosplash -r "addpath('$ISSM_DIR/src/m/dev'); devpath; addpath('$ISSM_DIR/lib'); outputDir='$PBS_JOBFS'; numberOfWorkers=$PBS_NCPUS; run('tuning_func($steps, $loadonly)') , quit" >FuncInit.log
-matlab -nodisplay -nosplash -r "addpath('$ISSM_DIR/src/m/dev'); devpath; addpath('$ISSM_DIR/lib'); outputDir='$PBS_JOBFS'; numberOfWorkers=$PBS_NCPUS; run('meltMip_ensemble($steps,1, $loadonly)') , quit" >FuncInit.log
+
+# matlab -nodisplay -nosplash -r "addpath('$ISSM_DIR/src/m/dev'); devpath; addpath('$ISSM_DIR/lib'); outputDir='$PBS_JOBFS'; numberOfWorkers=$PBS_NCPUS; run('meltMip_ensemble($steps,1, $loadonly)') , quit" >FuncInit.log
+# for j in $(seq 1 120); do
+# for j in $(seq 2 120); do
+for j in $(seq 1 1); do
+    matlab -nodisplay -nosplash -r "addpath('$ISSM_DIR/src/m/dev'); devpath; addpath('$ISSM_DIR/lib'); outputDir='$PBS_JOBFS'; numberOfWorkers=$PBS_NCPUS; run('meltMip_ensemble($steps, $j, $loadonly)'), quit" > FuncInit_${j}.log
+done
 # runs=[31]
 
