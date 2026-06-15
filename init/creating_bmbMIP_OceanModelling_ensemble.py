@@ -7,15 +7,13 @@ Structure expected by parameter_selection_quadratic_example.ipynb:
   coords: model = ["mathiot", "naughten_ais_1"], p1 = K values, p2 = [1.0]
   var   : melt_rate  (kg/m2/a)
 
-Mirrors the unit handling of creating_bmbMIP_ensmble.py (pd_ensemble):
-the gridded netcdf holds rho_ice * BMB[m/s]; multiplying by yearsinsec gives kg/m2/a.
-Only the recommended circum-Antarctic subset is used: Mathiot ("mathiot") and
+Mirrors the unit handling of creating_bmbMIP_ensmble.py (pd_ensemble): the gridded
+netcdf already holds melt_rate = BMB[m/a] * rho_ice, i.e. kg/m2/a, so it is used
+as-is. Only the recommended circum-Antarctic subset is used: Mathiot ("mathiot") and
 Naughten FESOM-ACCESS ("naughten_ais_1"). No regional masking is needed for these.
 """
 import xarray as xr
 import numpy as np
-
-yearsinsec = 31556926.080000002
 
 # K parameter values (p1), same range as the present-day ensemble
 K = np.arange(0.25e-5, 3.025e-4, 0.25e-5)
@@ -37,7 +35,7 @@ def build_ensemble(tag_map):
         for i, k in enumerate(K):
             j = i + 1  # MATLAB index starts at 1
             ncfile = f'{ncdir}/bmelt_OceanModelling_{tag}_K_{j}_gridData_8km.nc'
-            ds = xr.open_dataset(ncfile)['melt_rate'] * yearsinsec
+            ds = xr.open_dataset(ncfile)['melt_rate']  # already kg/m2/a
             ds = ds.expand_dims({'p1': 1}).assign_coords({'p1': [k]})
             runs.append(ds)
 
