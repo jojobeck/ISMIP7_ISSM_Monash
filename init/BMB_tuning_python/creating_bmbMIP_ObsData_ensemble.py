@@ -24,7 +24,7 @@ K = np.arange(0.25e-5, 3.025e-4, 0.25e-5)
 # Observation years (must match obs_years in the MATLAB steps)
 years = [2009, 2012]
 
-ncdir = 'Models/ModelNC/BMBObsData'
+ncdir = '../Models/ModelNC/BMBObsData'
 
 year_ensembles = []
 for year in years:

@@ -4,25 +4,25 @@ observed / target melt rates.
 Reads the ensemble netcdfs assembled by the creating_bmbMIP_*.py scripts
 (melt_rate already in kg/m2/a):
 
-  present day : Models/ModelNC/BMBPresentDay/MeltObs_ensemble.nc   (p2, p1, y, x)
-  ocean model : Models/ModelNC/BMBOceanModelling/warm_ensemble.nc  (model, p2, p1, y, x)
-                Models/ModelNC/BMBOceanModelling/cold_ensemble.nc
+  present day : ../Models/ModelNC/BMBPresentDay/MeltObs_ensemble.nc   (p2, p1, y, x)
+  ocean model : ../Models/ModelNC/BMBOceanModelling/warm_ensemble.nc  (model, p2, p1, y, x)
+                ../Models/ModelNC/BMBOceanModelling/cold_ensemble.nc
 
 Two figures are produced:
 
-  1. figures/figure_presentday_meltmaps.png
+  1. ../figures/figure_presentday_meltmaps.png
      4 rows x 1 col: modelled melt at Kmin, Kmean, Kmax, and the observed
      present-day target (Paolo/Adusumilli, melt_paolo_err_adusumilli_ismip8km.nc).
 
-  2. figures/figure_oceanmodelling_meltmaps.png
+  2. ../figures/figure_oceanmodelling_meltmaps.png
      2 rows x 4 cols at Kmean. Top row = modelled melt for Nw/Nc/Mw/Mc
      (Naughten/Mathiot warm/cold); bottom row = the matching ocean-model target
      melt (*_m.nc). Each column (scenario) shares a colour scale so model and
      target are directly comparable.
 
-#Everything is plotted in kg/m2/a, 
+Everything is plotted in kg/m2/a.
 
-Run from the init/ directory:  python plot_ensemble_meltmaps.py
+Run from BMB_tuning_python/:  python plot_ensemble_meltmaps.py
 """
 import os
 
@@ -41,11 +41,11 @@ CMAP.set_bad('white')
 
 # ------------------------------------------------------------------ constants
 
-ens_pd = 'Models/ModelNC/BMBPresentDay/MeltObs_ensemble.nc'
-ens_warm = 'Models/ModelNC/BMBOceanModelling/warm_ensemble.nc'
-ens_cold = 'Models/ModelNC/BMBOceanModelling/cold_ensemble.nc'
+ens_pd = '../Models/ModelNC/BMBPresentDay/MeltObs_ensemble.nc'
+ens_warm = '../Models/ModelNC/BMBOceanModelling/warm_ensemble.nc'
+ens_cold = '../Models/ModelNC/BMBOceanModelling/cold_ensemble.nc'
 
-target_root = './../raw_data/ISMIP7/AIS/parameterisations/ocean'
+target_root = './../../raw_data/ISMIP7/AIS/parameterisations/ocean'
 paolo_file = os.path.join(target_root, 'meltobs',
                           'melt_paolo_err_adusumilli_ismip8km.nc')
 om_target_dir = os.path.join(target_root, 'ocean_modelling_data')
@@ -64,7 +64,7 @@ OM_SCENARIOS = [
      'Mathiot_NEMO_cold_m.nc'),
 ]
 
-figure_dir = 'figures'
+figure_dir = '../figures'
 os.makedirs(figure_dir, exist_ok=True)
 
 
@@ -75,8 +75,6 @@ _fmask = xr.open_dataset(floatmask_file)['mask'].values > 0.5
 
 def _finite(field):
     return field.where(np.isfinite(field) & (field != 0))
-
-
 
 
 def robust_vmax(*fields, pct=99.0):

@@ -1,0 +1,6 @@
+AIS-wide melt (Term 1 — Paolo/Adusumilli)
+          K value  Modelled (Gt/a)  Observed (Gt/a)  Diff (Gt/a)
+5th     1.225e-04              877              865           12
+median  1.600e-04             1145              865          280
+95th    2.275e-04             1628              865          763
+mode    1.650e-04             1181              865          316

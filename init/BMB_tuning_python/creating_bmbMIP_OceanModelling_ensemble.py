@@ -18,7 +18,7 @@ import numpy as np
 # K parameter values (p1), same range as the present-day ensemble
 K = np.arange(0.25e-5, 3.025e-4, 0.25e-5)
 
-ncdir = 'Models/ModelNC/BMBOceanModelling'
+ncdir = '../Models/ModelNC/BMBOceanModelling'
 
 # model coordinate name -> MATLAB output tag, per ocean state
 cold_tags = {'mathiot': 'Mc', 'naughten_ais_1': 'Nc'}
