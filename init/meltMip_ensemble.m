@@ -44,6 +44,7 @@ function md=meltMIp(steps,j,loadonly)
   %   melt runs   : 4 melt_run  5 melt_run_OceanModelling  6 melt_run_ObsData
   %   gridding    : 7 create_BMB_gD  8 create_BMB_gD_4km
   %                 9 create_BMB_gD_OceanModelling  10 create_BMB_gD_ObsData
+  %   gamma_0     : 11 save_gamma0_local  (run AFTER run_parameter_selection.py)
   % The tf cell arrays are size [1,1,numel(tf_depths)] (3rd dim = DEPTH);
   % each tf{i} = [tf_at_vertices ; t] with t the (single) time row.
   % =====================================================================
@@ -537,5 +538,24 @@ function md=meltMIp(steps,j,loadonly)
             ncwrite(ncfile,"x",xGrid);
             ncwrite(ncfile,"melt_rate",transpose(dsBMB));
         end
+    end% }}}
+    if perform(org,'save_gamma0_local'),% {{{
+        % Convert K values selected by run_parameter_selection.py to gamma_0
+        % and save for use in ISSM projection runs.
+        % Requires K_selected.mat written by BMB_tuning_python/run_parameter_selection.py.
+        load('./../preprocessed_data/Ocean/K_selected.mat');  % K_mode, K_5th, K_50th, K_95th
+
+        gamma0_local      = K_mode / gT_to_K;
+        gamma0_local_5th  = K_5th  / gT_to_K;
+        gamma0_local_50th = K_50th / gT_to_K;
+        gamma0_local_95th = K_95th / gT_to_K;
+
+        save_path = './../preprocessed_data/Ocean/gamma0_local.mat';
+        save(save_path, 'gamma0_local', 'gamma0_local_5th', 'gamma0_local_50th', 'gamma0_local_95th', '-v7.3');
+        fprintf('Saved: %s\n', save_path);
+        fprintf('  gamma0_local (mode) = %.4e  (K_mode = %.4e)\n', gamma0_local,      K_mode);
+        fprintf('  gamma0_local_5th    = %.4e  (K_5th  = %.4e)\n', gamma0_local_5th,  K_5th);
+        fprintf('  gamma0_local_50th   = %.4e  (K_50th = %.4e)\n', gamma0_local_50th, K_50th);
+        fprintf('  gamma0_local_95th   = %.4e  (K_95th = %.4e)\n', gamma0_local_95th, K_95th);
     end% }}}
 

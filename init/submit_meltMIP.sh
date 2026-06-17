@@ -44,11 +44,12 @@ module load matlab_licence/monash
 steps=[1,2,3]
 loadonly=[0]
 steps=[7,9,10]
+steps=[11]
 # loadonly=[1]
 # j = [1];
 
-# matlab -nodisplay -nosplash -r "addpath('$ISSM_DIR/src/m/dev'); devpath; addpath('$ISSM_DIR/lib'); outputDir='$PBS_JOBFS'; numberOfWorkers=$PBS_NCPUS; run('meltMip_ensemble($steps,1, $loadonly)') , quit" >FunMeltMIP.log
-for j in $(seq 1 120); do
-    matlab -nodisplay -nosplash -r "addpath('$ISSM_DIR/src/m/dev'); devpath; addpath('$ISSM_DIR/lib'); outputDir='$PBS_JOBFS'; numberOfWorkers=$PBS_NCPUS; run('meltMip_ensemble($steps, $j, $loadonly)'), quit" > FuncMelt_${j}.log
-done
+matlab -nodisplay -nosplash -r "addpath('$ISSM_DIR/src/m/dev'); devpath; addpath('$ISSM_DIR/lib'); outputDir='$PBS_JOBFS'; numberOfWorkers=$PBS_NCPUS; run('meltMip_ensemble($steps,1, $loadonly)') , quit" >FunMeltMIP.log
+# for j in $(seq 1 120); do
+# matlab -nodisplay -nosplash -r "addpath('$ISSM_DIR/src/m/dev'); devpath; addpath('$ISSM_DIR/lib'); outputDir='$PBS_JOBFS'; numberOfWorkers=$PBS_NCPUS; run('meltMip_ensemble($steps, $j, $loadonly)'), quit" > FuncMelt_${j}.log
+# done
 

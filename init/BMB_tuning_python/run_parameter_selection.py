@@ -13,6 +13,7 @@ import xarray as xr
 import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.signal import find_peaks
+from scipy.io import savemat
 
 from parameter_selection_toolbox import (
     calculate_term1,
@@ -330,3 +331,13 @@ out_val = os.path.join(figure_dir, 'parameter_selection_validation.png')
 fig.savefig(out_val, dpi=150)
 plt.close(fig)
 print(f'Saved: {out_val}')
+
+# ============================================= save K values for MATLAB step
+K_mat = os.path.join('..', '..', 'preprocessed_data', 'Ocean', 'K_selected.mat')
+savemat(K_mat, {
+    'K_mode': K_mode,
+    'K_5th':  K_5th,
+    'K_50th': K_50th,
+    'K_95th': K_95th,
+})
+print(f'Saved: {K_mat}  (run meltMip_ensemble step 11 to write gamma0_local.mat)')
