@@ -17,10 +17,15 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
 %   2  CESM_SMB_hist       build annual SMB mat (CESM anomaly + RACMO clim, SMBgradients)
 %   3  Greene_levelset     build spclevelset time series from icemask_greene
 %   4  HistRun             transient 1995-2020 (loadonly=0 submit, =1 gather)
-%   5  HistRun_Validation  SMB timeseries + ice mask maps + BMB maps vs obs
-%   6  HistRun_Assessment  mass loss by region vs Otosaka
+%   5  HistRun_Validation             SMB timeseries + ice mask maps + BMB maps vs obs
+%   6  Assign_Regions                 build & save WAIS/EAIS/Peninsula mask (vertices+elements)
+%                                     + modelled mass-change-per-region trend figure
+%   7  HistRun_Assessment             mass loss by region vs Otosaka
+%   8  HistRun_CorrectSMB             rerun transient with region-scaled SMB
+%                                     (1+p_calc_corr from step 7, capped +/-25%)
+%   9  HistRun_CorrectSMB_Assessment  mass loss by region vs Otosaka, after SMB correction
 %
-% TODO (step 5): confirm that regions in sectors_8km.nc are 1=WAIS 2=EAIS 3=Peninsula
+% TODO (step 6): confirm that regions in sectors_8km.nc are 1=WAIS 2=EAIS 3=Peninsula
 
     if ~exist('loadonly','var'), loadonly = 0; end
     addpath('./scripts');
@@ -137,6 +142,19 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
         %   b_pos/b_neg must be mm w.e. yr-1 m-1 -> dacabfdz [kg m-2 s-1 m-1] * sec_to_year
         %   RACMO smb_rec already in mm w.e. yr-1 -> use as-is (no rhoi division)
         %   href is in metres (no scaling)
+        %
+        % CESM acabf source files are MONTHLY (12 time steps/year, confirmed via
+        % ncdump). We collapse each year to a single annual mean (equally-weighted
+        % across the 12 months) rather than keeping the real monthly resolution,
+        % because the RACMO baseline (smb_racmo) is only a static 1995-2014 ANNUAL
+        % climatology -- there is no monthly RACMO climatology to anchor a true
+        % seasonal anomaly against. Equal weighting (not day-in-month weighting)
+        % matches md.timestepping.time_step = 1/12, which also treats every month
+        % as exactly 1/12 year regardless of its real length. Forcing is stored one
+        % value per year (t_smb = integer years); with interp_forcing = 1, ISSM
+        % linearly interpolates between consecutive annual values for each monthly
+        % sub-step, so the seasonal cycle is not resolved -- only the inter-annual
+        % trend is.
 
         md   = loadmodel(inputmodel_relax);
         m    = ((1+sin(71*pi/180))*ones(md.mesh.numberofvertices,1) ...
@@ -546,142 +564,207 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
     end % }}}
 
     % ================================================================= Step 6
-    if perform(org, 'HistRun_Assessment') % {{{
-        % Regional mass loss using sectors_8km.nc:
+    if perform(org, 'Assign_Regions') % {{{
+        % Build & save the WAIS / EAIS / Peninsula macro-region mask
+        % (vertices + elements), analogous to tuning_func.m's 'Assign_Basins'
+        % step (which builds the IMBIE2 basin-on-elements/vertices masks
+        % already loaded in steps 4/8 from Imbie2_extrap_2km_BasinOnElements.mat).
+        % Saved once here and reused by HistRun_Assessment / HistRun_CorrectSMB
+        % instead of re-interpolating sectors_8km.nc every time.
         %   regions = 1 -> WAIS  |  2 -> EAIS  |  3 -> Peninsula
         % TODO: confirm these region values with the file on Gadi before trusting output.
-        %
-        % Method: dMass_region(t) = rho_ice * sum_elem[ dH_elem(t) * area_elem ]
-        %   where sum is over elements whose centroid region == target.
 
         md = loadmodel(org, 'HistRun');
+
+        x_sec    = double(ncread(sectors_nc, 'x'));
+        y_sec    = double(ncread(sectors_nc, 'y'));
+        reg_grid = double(ncread(sectors_nc, 'regions'));
+        reg_vert = round(InterpFromGridToMesh(x_sec, y_sec, reg_grid', md.mesh.x, md.mesh.y, 0));
+        reg_elem = mode(reg_vert(md.mesh.elements), 2);
+
+        region_names = {'WAIS', 'EAIS', 'Peninsula'};
+        region_ids   = [1, 2, 3];
+
+        region_mask_file = [preproc_ocean 'Basins/HistRun_Regions.mat'];
+        if ~exist([preproc_ocean 'Basins'], 'dir'), mkdir([preproc_ocean 'Basins']); end
+        save(region_mask_file, 'reg_vert', 'reg_elem', 'region_names', 'region_ids', '-v7.3');
+        fprintf('Saved: %s\n', region_mask_file);
+
+        % --- Diagnostic: modelled cumulative mass change per region, with fitted trend ---
         rhoi = md.materials.rho_ice;
+        nR   = length(region_ids);
+        nT   = length(md.results.TransientSolution);
+        time = zeros(1, nT);
+        dMass = zeros(nR, nT);
 
-        % --- Interpolate sectors mask to mesh vertices, then to elements ---
-        x_sec      = double(ncread(sectors_nc, 'x'));
-        y_sec      = double(ncread(sectors_nc, 'y'));
-        reg_grid   = double(ncread(sectors_nc, 'regions'));
-        reg_vert   = InterpFromGridToMesh(x_sec, y_sec, reg_grid', md.mesh.x, md.mesh.y, 0);
-        reg_vert   = round(reg_vert);
-        % Element region = majority vote of its 3 vertices
-        reg_elem   = mode(reg_vert(md.mesh.elements), 2);
-
-        % --- Element areas (triangles) ---
         x1 = md.mesh.x(md.mesh.elements(:,1));  y1 = md.mesh.y(md.mesh.elements(:,1));
         x2 = md.mesh.x(md.mesh.elements(:,2));  y2 = md.mesh.y(md.mesh.elements(:,2));
         x3 = md.mesh.x(md.mesh.elements(:,3));  y3 = md.mesh.y(md.mesh.elements(:,3));
         elem_area = 0.5 * abs((x2-x1).*(y3-y1) - (x3-x1).*(y2-y1));
 
-        region_names  = {'WAIS', 'EAIS', 'Peninsula'};
-        region_ids    = [1, 2, 3];
-        nR            = length(region_ids);
-        nT            = length(md.results.TransientSolution);
-        time          = zeros(1, nT);
-        dMass         = zeros(nR, nT);   % Gt
-
         H0_vert = md.results.TransientSolution(1).Thickness;
-
-        % --- Vertex areas (nodal, 1/3 of each adjacent triangle) for SMB integration ---
-        vert_area = accumarray(md.mesh.elements(:), repmat(elem_area/3, 3, 1), ...
-                               [md.mesh.numberofvertices, 1]);
-
-        smb_rate = zeros(nR, nT);   % SMB-driven mass rate per region, Gt/yr
-
         for t = 1:nT
             time(t) = md.results.TransientSolution(t).time;
             H_vert  = md.results.TransientSolution(t).Thickness;
             dH_vert = H_vert - H0_vert;
-            % Average dH to elements
             dH_elem = mean(dH_vert(md.mesh.elements), 2);
-
-            smb_vert = md.results.TransientSolution(t).SmbMassBalance;  % m ice eq/yr
             for r = 1:nR
                 mask = (reg_elem == region_ids(r));
                 dMass(r, t) = sum(dH_elem(mask) .* elem_area(mask)) * rhoi / 1e12;  % Gt
-
-                vmask = (reg_vert == region_ids(r));
-                smb_rate(r, t) = sum(smb_vert(vmask) .* vert_area(vmask)) * rhoi / 1e12;  % Gt/yr
             end
         end
 
-        % --- Print table ---
-        fprintf('\n=== Cumulative mass change (Gt) relative to %d ===\n', start_year);
-        fprintf('%-6s', 'Year');
-        for r = 1:nR, fprintf('%12s', region_names{r}); end
-        fprintf('%12s\n', 'AIS total');
-        for t = 1:12:nT
-            fprintf('%-6.0f', time(t));
-            for r = 1:nR, fprintf('%12.1f', dMass(r,t)); end
-            fprintf('%12.1f\n', sum(dMass(:,t)));
-        end
-
-        % --- Trend vs Otosaka et al. 1995-2020 (Gt/yr) + SMB correction factor ---
-        % Mirrors tuning_func_justine.m step
-        % 'TestFirst_assesement_from_Collapserealx20y_withC0.5': model trend (slope
-        % of cumulative mass change) is compared against Otosaka's min/mean/max
-        % trend per region, and p_calc_corr gives the fractional SMB scaling that
-        % would close the gap between the model trend and Otosaka's mean trend
-        % over the run, given the region's actual cumulative SMB-driven mass.
-        otosaka_csv  = './Data/Tables/Otosaka_mass_change_GTy_min_mean_max_1995_2020.csv';
-        otosaka_name = {'West', 'East', 'Peninsula'};   % matches region_names order
-
-        opts = detectImportOptions(otosaka_csv);
-        opts = setvartype(opts, 'region', 'string');
-        n    = readtable(otosaka_csv, opts);
-        n.model_region = strings(height(n), 1);
-        n.issm         = NaN(height(n), 1);
-        n.in_range     = NaN(height(n), 1);
-        n.tot_smb      = NaN(height(n), 1);
-        n.p_calc_corr  = NaN(height(n), 1);
-
-        nyrs_run = time(end) - time(1) + 1;   % 26 for 1995-2020
-
-        for r = 1:nR
-            p         = polyfit(time, dMass(r,:), 1);
-            rate_issm = p(1);   % model trend, Gt/yr
-
-            j = find(strcmpi(n.region, otosaka_name{r}));
-
-            n.model_region(j) = region_names{r};
-            n.issm(j)         = rate_issm;
-            n.in_range(j)      = double(rate_issm >= n.min(j) & rate_issm <= n.max(j));
-
-            y0smb           = cumsum(smb_rate(r,:));
-            n.tot_smb(j)      = y0smb(end) - y0smb(1);   % Gt, relative to first year
-            n.p_calc_corr(j)  = (n.mean(j)*nyrs_run - n.issm(j)*nyrs_run) / n.tot_smb(j);
-        end
-
-        fprintf('\n=== Trend vs Otosaka et al. 1995-2020 (Gt/yr) ===\n');
-        fprintf('%-10s%10s%10s%10s%10s%8s%12s%12s\n', ...
-                'Region', 'Min', 'Mean', 'Max', 'ISSM', 'InRng', 'TotSMB(Gt)', 'p_corr');
-        for j = 1:height(n)
-            fprintf('%-10s%10.2f%10.2f%10.2f%10.2f%8d%12.1f%12.4f\n', ...
-                    n.model_region(j), n.min(j), n.mean(j), n.max(j), n.issm(j), ...
-                    n.in_range(j), n.tot_smb(j), n.p_calc_corr(j));
-        end
-
-        if ~exist('./Data/Tables', 'dir'), mkdir('./Data/Tables'); end
-        writetable(n, './Data/Tables/HistRun_otosaka_assessment_CESM_WACCM.csv');
-        fprintf('Saved: Data/Tables/HistRun_otosaka_assessment_CESM_WACCM.csv\n');
-
-        % --- Plot: cumulative mass change vs Otosaka mean-trend reference lines ---
         figure('visible','off');
         cols = {'b','r','g'};
         hold on;
         for r = 1:nR
             plot(time, dMass(r,:), cols{r}, 'LineWidth', 1.5, 'DisplayName', region_names{r});
-            j = find(strcmpi(n.region, otosaka_name{r}));
-            otosaka_lin = n.mean(j) * (time - time(1));
-            plot(time, otosaka_lin, [cols{r} '--'], 'LineWidth', 1, ...
-                 'DisplayName', sprintf('%s Otosaka mean', region_names{r}));
+            p = polyfit(time, dMass(r,:), 1);
+            plot(time, polyval(p, time), [cols{r} '--'], 'LineWidth', 1, ...
+                 'DisplayName', sprintf('%s fit (%.1f Gt/yr)', region_names{r}, p(1)));
         end
-        plot(time, sum(dMass,1), 'k--', 'LineWidth', 2, 'DisplayName', 'AIS total');
+        plot(time, sum(dMass,1), 'k-', 'LineWidth', 1.5, 'DisplayName', 'AIS total');
         xlabel('Year'); ylabel('\DeltaMass (Gt)');
-        title('Cumulative mass change vs Otosaka et al.  (CESM2-WACCM hist+ssp126)');
+        title('Modelled cumulative mass change per region with fitted trend');
         legend('Location','southwest'); grid on;
         if ~exist('./figures','dir'), mkdir('./figures'); end
-        saveas(gcf, './figures/HistRun_regional_mass_change.png');
-        fprintf('Saved: figures/HistRun_regional_mass_change.png\n');
+        saveas(gcf, './figures/Assign_Regions_mass_trend.png');
+        fprintf('Saved: figures/Assign_Regions_mass_trend.png\n');
+    end % }}}
+
+    % ================================================================= Step 7
+    if perform(org, 'HistRun_Assessment') % {{{
+        md = loadmodel(org, 'HistRun');
+        region_mask_file = [preproc_ocean 'Basins/HistRun_Regions.mat'];
+        assess_vs_otosaka(md, region_mask_file, start_year, ...
+            './Data/Tables/HistRun_otosaka_assessment_CESM_WACCM.csv', ...
+            './figures/HistRun_regional_mass_change.png', ...
+            'Cumulative mass change vs Otosaka et al.  (CESM2-WACCM hist+ssp126)');
+    end % }}}
+
+    % ================================================================= Step 8
+    if perform(org, 'HistRun_CorrectSMB') % {{{
+        % Rerun the full 1995-2020 transient with the RACMO climatology
+        % component of the SMB forcing scaled per region by 1+p_calc_corr
+        % from step 7's Otosaka assessment. The CESM year-to-year anomaly is
+        % left untouched -- only the static climatological level is corrected.
+        % Mirrors tuning_func_justine.m's
+        % 'submit_from_Collapserelax20y_correctSMB_withC0.5'.
+        %
+        % p_calc_corr can be poorly constrained (especially for the
+        % Peninsula, which is hard to get right), so the scale factor is
+        % capped to +/-25% (i.e. clamped to [0.75, 1.25]) for every region.
+
+        md = loadmodel(inputmodel_relax);
+        m  = ((1+sin(71*pi/180))*ones(md.mesh.numberofvertices,1) ...
+              ./ (1+sin(abs(md.mesh.lat)*pi/180)));
+        md.mesh.scale_factor = (1./m).^2;
+
+        md.inversion.iscontrol       = 0;
+        md.transient.isthermal       = 0;
+        md.transient.isgroundingline = 1;
+        md.transient.ismasstransport = 1;
+        md.transient.isstressbalance = 1;
+        md.masstransport.spcthickness   = NaN*ones(md.mesh.numberofvertices, 1);
+        md.outputdefinition.definitions = {};
+        md.timestepping.interp_forcing  = 1;
+
+        md.timestepping.start_time = start_year;
+        md.timestepping.final_time = end_year + 1;
+        md.timestepping.time_step  = 1/12.;
+        md.settings.output_frequency = 12;   % annual snapshots
+
+        md.transient.requested_outputs = { ...
+            'default', ...
+            'IceVolume', 'IceVolumeAboveFloatation', ...
+            'GroundedArea', 'FloatingArea', ...
+            'TotalSmb', 'TotalGroundedBmb', 'TotalFloatingBmb', ...
+            'IceVolumeAboveFloatationScaled', ...
+            'Thickness', ...
+            'MaskOceanLevelset', 'MaskIceLevelset', ...
+            'SmbMassBalance', ...
+            'BasalforcingsFloatingiceMeltingRate'};
+
+        md.groundingline.migration              = 'SubelementMigration';
+        md.groundingline.friction_interpolation = 'SubelementFriction1';
+        md.groundingline.melt_interpolation     = 'SubelementMelt1';
+
+        % --- Ocean (unchanged from step 4) ---
+        load([preproc_ocean 'Basins/Imbie2_extrap_2km_BasinOnElements.mat']);
+        load([preproc_ocean 'tf_depths.mat']);
+        load([preproc_front 'CESM_WACCM_TF_' num2str(start_year) '_' num2str(end_year) '.mat']);
+        load([preproc_ocean 'gamma0_local.mat']);
+
+        unique_basinid = unique(basinid);
+        delta_t        = zeros(1, length(unique_basinid));
+
+        md.basalforcings            = basalforcingsismip6(md.basalforcings);
+        md.basalforcings.basin_id   = basinid;
+        md.basalforcings.num_basins = length(unique_basinid);
+        md.basalforcings.tf_depths  = tf_depths;
+        md.basalforcings.tf         = tf_hist;
+        md.basalforcings.islocal    = 1;
+        md.basalforcings.delta_t    = delta_t;
+        md.basalforcings.gamma_0    = gamma0_local;
+
+        % --- SMB: scale RACMO climatology per region, cap correction to +/-25% ---
+        load([preproc_atmo 'CESM_WACCM_SMB_' num2str(start_year) '_' num2str(end_year) '.mat']);
+        smb_matrix = smb_forcing(1:end-1, :);   % mm w.e. yr-1, [nVerts x nyears]
+
+        x_r = double(ncread(racmo_clim_nc, 'x'));
+        y_r = double(ncread(racmo_clim_nc, 'y'));
+        smb_racmo = InterpFromGridToMesh(x_r, y_r, ...
+                        double(ncread(racmo_clim_nc, 'smb_rec'))', ...
+                        md.mesh.x, md.mesh.y, 0);   % mm w.e. yr-1, [nVerts x 1]
+
+        load([preproc_ocean 'Basins/HistRun_Regions.mat'], 'reg_vert', 'region_names', 'region_ids');
+
+        otosaka_assessment = readtable('./Data/Tables/HistRun_otosaka_assessment_CESM_WACCM.csv');
+        p_vert = ones(md.mesh.numberofvertices, 1);
+        for r = 1:length(region_ids)
+            j     = find(strcmpi(otosaka_assessment.model_region, region_names{r}));
+            p_raw = 1 + otosaka_assessment.p_calc_corr(j);
+            p_cap = min(max(p_raw, 0.75), 1.25);   % cap correction to +/-25%
+            fprintf('  %s: p_calc_corr=%.4f -> scale=%.4f (capped %.4f)\n', ...
+                    region_names{r}, otosaka_assessment.p_calc_corr(j), p_raw, p_cap);
+            p_vert(reg_vert == region_ids(r)) = p_cap;
+        end
+
+        smb_corr_matrix  = p_vert .* smb_racmo + (smb_matrix - smb_racmo);
+        smb_forcing_corr = [smb_corr_matrix ; smb_forcing(end, :)];
+
+        md.smb        = SMBgradients();
+        md.smb.smbref = smb_forcing_corr;      % region-corrected RACMO clim + CESM anomaly
+        md.smb.b_pos  = bgrad_forcing;
+        md.smb.b_neg  = bgrad_forcing;
+        md.smb.href   = [md.geometry.surface ; start_year];
+
+        % --- Calving front (unchanged from step 4) ---
+        md.calving.calvingrate         = zeros(md.mesh.numberofvertices,1);
+        md.frontalforcings.meltingrate = zeros(md.mesh.numberofvertices,1);
+        md.transient.ismovingfront = 1;
+        load([preproc_front 'Greene_spclevelset_' num2str(start_year) '_' num2str(end_year) '.mat']);
+        md.levelset.spclevelset = greene_spclevelset;
+
+        md.miscellaneous.name = ['HistRun_CorrectSMB_CESM_WACCM_' num2str(start_year) '_' num2str(end_year)];
+        clustername = 'gadi';
+        md.cluster  = set_cluster(clustername);
+        md.settings.waitonlock = 0;
+        md.verbose = verbose('solution', true, 'module', true, 'convergence', false);
+        md = solve(md, 'tr', 'runtimename', false, 'loadonly', loadonly);
+        if loadonly
+            savemodel(org, md);
+        end
+    end % }}}
+
+    % ================================================================= Step 9
+    if perform(org, 'HistRun_CorrectSMB_Assessment') % {{{
+        md = loadmodel(org, 'HistRun_CorrectSMB');
+        region_mask_file = [preproc_ocean 'Basins/HistRun_Regions.mat'];
+        assess_vs_otosaka(md, region_mask_file, start_year, ...
+            './Data/Tables/HistRun_otosaka_assessment_CESM_WACCM_corrected.csv', ...
+            './figures/HistRun_regional_mass_change_corrected.png', ...
+            'Cumulative mass change vs Otosaka et al.  (corrected SMB, CESM2-WACCM hist+ssp126)');
     end % }}}
 
 end
@@ -693,4 +776,139 @@ function nc = smb_nc_path(hist_dir, ssp_dir, hist_end, yr, var)
     else
         nc = [ssp_dir  sprintf('%s_AIS_CESM2-WACCM_ssp126_SDBN1-2000m_v2_%d.nc',    var, yr)];
     end
+end
+
+function assess_vs_otosaka(md, region_mask_file, start_year, csv_out, png_out, plot_title)
+    % Regional mass loss using the region mask saved by 'Assign_Regions':
+    %   regions = 1 -> WAIS  |  2 -> EAIS  |  3 -> Peninsula
+    %
+    % Method: dMass_region(t) = rho_ice * sum_elem[ dH_elem(t) * area_elem ]
+    %   where sum is over elements whose centroid region == target.
+    %
+    % Trend vs Otosaka et al. 1995-2020 (Gt/yr) + SMB correction factor:
+    % the model trend (slope of cumulative mass change) is compared against
+    % Otosaka's min/mean/max trend per region, and p_calc_corr gives the
+    % fractional SMB scaling that would close the gap between the model
+    % trend and Otosaka's mean trend over the run, given the region's
+    % actual cumulative SMB-driven mass.
+    rhoi = md.materials.rho_ice;
+
+    load(region_mask_file, 'reg_vert', 'reg_elem', 'region_names', 'region_ids');
+
+    % --- Element areas (triangles) ---
+    x1 = md.mesh.x(md.mesh.elements(:,1));  y1 = md.mesh.y(md.mesh.elements(:,1));
+    x2 = md.mesh.x(md.mesh.elements(:,2));  y2 = md.mesh.y(md.mesh.elements(:,2));
+    x3 = md.mesh.x(md.mesh.elements(:,3));  y3 = md.mesh.y(md.mesh.elements(:,3));
+    elem_area = 0.5 * abs((x2-x1).*(y3-y1) - (x3-x1).*(y2-y1));
+
+    nR            = length(region_ids);
+    nT            = length(md.results.TransientSolution);
+    time          = zeros(1, nT);
+    dMass         = zeros(nR, nT);   % Gt
+
+    H0_vert = md.results.TransientSolution(1).Thickness;
+
+    % --- Vertex areas (nodal, 1/3 of each adjacent triangle) for SMB integration ---
+    vert_area = accumarray(md.mesh.elements(:), repmat(elem_area/3, 3, 1), ...
+                           [md.mesh.numberofvertices, 1]);
+
+    smb_rate = zeros(nR, nT);   % SMB-driven mass rate per region, Gt/yr
+
+    for t = 1:nT
+        time(t) = md.results.TransientSolution(t).time;
+        H_vert  = md.results.TransientSolution(t).Thickness;
+        dH_vert = H_vert - H0_vert;
+        % Average dH to elements
+        dH_elem = mean(dH_vert(md.mesh.elements), 2);
+
+        smb_vert = md.results.TransientSolution(t).SmbMassBalance;  % m ice eq/yr
+        for r = 1:nR
+            mask = (reg_elem == region_ids(r));
+            dMass(r, t) = sum(dH_elem(mask) .* elem_area(mask)) * rhoi / 1e12;  % Gt
+
+            vmask = (reg_vert == region_ids(r));
+            smb_rate(r, t) = sum(smb_vert(vmask) .* vert_area(vmask)) * rhoi / 1e12;  % Gt/yr
+        end
+    end
+
+    % --- Print table ---
+    fprintf('\n=== Cumulative mass change (Gt) relative to %d ===\n', start_year);
+    fprintf('%-6s', 'Year');
+    for r = 1:nR, fprintf('%12s', region_names{r}); end
+    fprintf('%12s\n', 'AIS total');
+    for t = 1:12:nT
+        fprintf('%-6.0f', time(t));
+        for r = 1:nR, fprintf('%12.1f', dMass(r,t)); end
+        fprintf('%12.1f\n', sum(dMass(:,t)));
+    end
+
+    % --- Trend vs Otosaka et al. 1995-2020 (Gt/yr) + SMB correction factor ---
+    otosaka_csv  = './Data/Tables/Otosaka_mass_change_GTy_min_mean_max_1995_2020.csv';
+    otosaka_name = {'West', 'East', 'Peninsula'};   % matches region_names order
+
+    opts = detectImportOptions(otosaka_csv);
+    opts = setvartype(opts, 'region', 'string');
+    n    = readtable(otosaka_csv, opts);
+    n.model_region = strings(height(n), 1);
+    n.issm         = NaN(height(n), 1);
+    n.in_range     = NaN(height(n), 1);
+    n.tot_smb      = NaN(height(n), 1);
+    n.p_calc_corr  = NaN(height(n), 1);
+
+    nyrs_run = time(end) - time(1) + 1;   % 26 for 1995-2020
+
+    issm_fit = zeros(nR, 2);   % [slope, intercept] per region, for plotting
+
+    for r = 1:nR
+        p         = polyfit(time, dMass(r,:), 1);
+        rate_issm = p(1);   % model trend, Gt/yr
+        issm_fit(r,:) = p;
+
+        j = find(strcmpi(n.region, otosaka_name{r}));
+
+        n.model_region(j) = region_names{r};
+        n.issm(j)         = rate_issm;
+        n.in_range(j)      = double(rate_issm >= n.min(j) & rate_issm <= n.max(j));
+
+        y0smb           = cumsum(smb_rate(r,:));
+        n.tot_smb(j)      = y0smb(end) - y0smb(1);   % Gt, relative to first year
+        n.p_calc_corr(j)  = (n.mean(j)*nyrs_run - n.issm(j)*nyrs_run) / n.tot_smb(j);
+    end
+
+    fprintf('\n=== Trend vs Otosaka et al. 1995-2020 (Gt/yr) ===\n');
+    fprintf('%-10s%10s%10s%10s%10s%8s%12s%12s\n', ...
+            'Region', 'Min', 'Mean', 'Max', 'ISSM', 'InRng', 'TotSMB(Gt)', 'p_corr');
+    for j = 1:height(n)
+        fprintf('%-10s%10.2f%10.2f%10.2f%10.2f%8d%12.1f%12.4f\n', ...
+                n.model_region(j), n.min(j), n.mean(j), n.max(j), n.issm(j), ...
+                n.in_range(j), n.tot_smb(j), n.p_calc_corr(j));
+    end
+
+    [csv_dir, ~, ~] = fileparts(csv_out);
+    if ~isempty(csv_dir) && ~exist(csv_dir, 'dir'), mkdir(csv_dir); end
+    writetable(n, csv_out);
+    fprintf('Saved: %s\n', csv_out);
+
+    % --- Plot: cumulative mass change vs Otosaka mean-trend reference lines ---
+    figure('visible','off');
+    cols = {'b','r','g'};
+    hold on;
+    for r = 1:nR
+        plot(time, dMass(r,:), cols{r}, 'LineWidth', 1.5, 'DisplayName', region_names{r});
+        j = find(strcmpi(n.region, otosaka_name{r}));
+        otosaka_lin = n.mean(j) * (time - time(1));
+        plot(time, otosaka_lin, [cols{r} '--'], 'LineWidth', 1, ...
+             'DisplayName', sprintf('%s Otosaka mean', region_names{r}));
+        issm_lin = polyval(issm_fit(r,:), time);   % true regression fit, not anchored to 0
+        plot(time, issm_lin, [cols{r} ':'], 'LineWidth', 1.5, ...
+             'DisplayName', sprintf('%s ISSM fit (%.1f Gt/yr)', region_names{r}, issm_fit(r,1)));
+    end
+    plot(time, sum(dMass,1), 'k--', 'LineWidth', 2, 'DisplayName', 'AIS total');
+    xlabel('Year'); ylabel('\DeltaMass (Gt)');
+    title(plot_title);
+    legend('Location','southwest'); grid on;
+    [png_dir, ~, ~] = fileparts(png_out);
+    if ~isempty(png_dir) && ~exist(png_dir, 'dir'), mkdir(png_dir); end
+    saveas(gcf, png_out);
+    fprintf('Saved: %s\n', png_out);
 end
