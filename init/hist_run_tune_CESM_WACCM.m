@@ -19,10 +19,10 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
 %   4  Relaxed_CESM_WACCM  short 1-year run (1995->1996) under real CESM_WACCM
 %                          forcing, used only to relax inputmodel_relax's
 %                          geometry/ocean_levelset before HistRun starts
-%   5  HistRun             transient 1995-2020 (loadonly=0 submit, =1 gather)
-%   6  HistRun_Validation             SMB timeseries + ice mask maps + BMB maps vs obs
-%   7  Assign_Regions                 build & save WAIS/EAIS/Peninsula mask (vertices+elements)
+%   5  Assign_Regions                 build & save WAIS/EAIS/Peninsula mask (vertices+elements)
 %                                     + modelled mass-change-per-region trend figure
+%   6  HistRun             transient 1995-2020 (loadonly=0 submit, =1 gather)
+%   7  HistRun_Validation             SMB timeseries + ice mask maps + BMB maps vs obs
 %   8  HistRun_Assessment             mass loss by region vs Otosaka
 %   9  HistRun_CorrectSMB             rerun transient with region-scaled SMB
 %                                     (1+p_calc_corr from step 8, capped +/-25%)
@@ -379,6 +379,74 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
     end % }}}
 
     % ================================================================= Step 5
+    if perform(org, 'Assign_Regions') % {{{
+        % Build & save the WAIS / EAIS / Peninsula macro-region mask
+        % (vertices + elements), analogous to tuning_func.m's 'Assign_Basins'
+        % step (which builds the IMBIE2 basin-on-elements/vertices masks
+        % already loaded in steps 4/8 from Imbie2_extrap_2km_BasinOnElements.mat).
+        % Saved once here and reused by HistRun_Assessment / HistRun_CorrectSMB
+        % instead of re-interpolating sectors_8km.nc every time.
+        %   regions = 1 -> WAIS  |  2 -> EAIS  |  3 -> Peninsula
+        % TODO: confirm these region values with the file on Gadi before trusting output.
+
+        md = loadmodel(org, 'HistRun');
+
+        x_sec    = double(ncread(sectors_nc, 'x'));
+        y_sec    = double(ncread(sectors_nc, 'y'));
+        reg_grid = double(ncread(sectors_nc, 'regions'));
+        reg_vert = round(InterpFromGridToMesh(x_sec, y_sec, reg_grid', md.mesh.x, md.mesh.y, 0));
+        reg_elem = mode(reg_vert(md.mesh.elements), 2);
+
+        region_names = {'WAIS', 'EAIS', 'Peninsula'};
+        region_ids   = [1, 2, 3];
+
+        region_mask_file = [preproc_ocean 'Basins/HistRun_Regions.mat'];
+        if ~exist([preproc_ocean 'Basins'], 'dir'), mkdir([preproc_ocean 'Basins']); end
+        save(region_mask_file, 'reg_vert', 'reg_elem', 'region_names', 'region_ids', '-v7.3');
+        fprintf('Saved: %s\n', region_mask_file);
+
+        % --- Diagnostic: modelled cumulative mass change per region, with fitted trend ---
+        rhoi = md.materials.rho_ice;
+        nR   = length(region_ids);
+        nT   = length(md.results.TransientSolution);
+        time = zeros(1, nT);
+        dMass = zeros(nR, nT);
+
+        x1 = md.mesh.x(md.mesh.elements(:,1));  y1 = md.mesh.y(md.mesh.elements(:,1));
+        x2 = md.mesh.x(md.mesh.elements(:,2));  y2 = md.mesh.y(md.mesh.elements(:,2));
+        x3 = md.mesh.x(md.mesh.elements(:,3));  y3 = md.mesh.y(md.mesh.elements(:,3));
+        elem_area = 0.5 * abs((x2-x1).*(y3-y1) - (x3-x1).*(y2-y1));
+
+        H0_vert = md.results.TransientSolution(1).Thickness;
+        for t = 1:nT
+            time(t) = md.results.TransientSolution(t).time;
+            H_vert  = md.results.TransientSolution(t).Thickness;
+            dH_vert = H_vert - H0_vert;
+            dH_elem = mean(dH_vert(md.mesh.elements), 2);
+            for r = 1:nR
+                mask = (reg_elem == region_ids(r));
+                dMass(r, t) = sum(dH_elem(mask) .* elem_area(mask)) * rhoi / 1e12;  % Gt
+            end
+        end
+
+        figure('visible','off');
+        cols = {'b','r','g'};
+        hold on;
+        for r = 1:nR
+            plot(time, dMass(r,:), cols{r}, 'LineWidth', 1.5, 'DisplayName', region_names{r});
+            p = polyfit(time, dMass(r,:), 1);
+            plot(time, polyval(p, time), [cols{r} '--'], 'LineWidth', 1, ...
+                 'DisplayName', sprintf('%s fit (%.1f Gt/yr)', region_names{r}, p(1)));
+        end
+        plot(time, sum(dMass,1), 'k-', 'LineWidth', 1.5, 'DisplayName', 'AIS total');
+        xlabel('Year'); ylabel('\DeltaMass (Gt)');
+        title('Modelled cumulative mass change per region with fitted trend');
+        legend('Location','southwest'); grid on;
+        if ~exist('./figures','dir'), mkdir('./figures'); end
+        saveas(gcf, './figures/Assign_Regions_mass_trend.png');
+        fprintf('Saved: figures/Assign_Regions_mass_trend.png\n');
+    end % }}}
+    % ================================================================= Step 6
     if perform(org, 'HistRun') % {{{
 
         md = loadmodel(org, 'Relaxed_CESM_WACCM');
@@ -464,7 +532,7 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
         end
     end % }}}
 
-    % ================================================================= Step 6
+    % ================================================================= Step 7
     if perform(org, 'HistRun_Validation') % {{{
         % Three validation figures before Otosaka comparison:
         %   Fig 1: Total AIS SMB over time  (model TotalSmb vs integrated smb_forcing)
@@ -675,74 +743,6 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
 
     end % }}}
 
-    % ================================================================= Step 7
-    if perform(org, 'Assign_Regions') % {{{
-        % Build & save the WAIS / EAIS / Peninsula macro-region mask
-        % (vertices + elements), analogous to tuning_func.m's 'Assign_Basins'
-        % step (which builds the IMBIE2 basin-on-elements/vertices masks
-        % already loaded in steps 4/8 from Imbie2_extrap_2km_BasinOnElements.mat).
-        % Saved once here and reused by HistRun_Assessment / HistRun_CorrectSMB
-        % instead of re-interpolating sectors_8km.nc every time.
-        %   regions = 1 -> WAIS  |  2 -> EAIS  |  3 -> Peninsula
-        % TODO: confirm these region values with the file on Gadi before trusting output.
-
-        md = loadmodel(org, 'HistRun');
-
-        x_sec    = double(ncread(sectors_nc, 'x'));
-        y_sec    = double(ncread(sectors_nc, 'y'));
-        reg_grid = double(ncread(sectors_nc, 'regions'));
-        reg_vert = round(InterpFromGridToMesh(x_sec, y_sec, reg_grid', md.mesh.x, md.mesh.y, 0));
-        reg_elem = mode(reg_vert(md.mesh.elements), 2);
-
-        region_names = {'WAIS', 'EAIS', 'Peninsula'};
-        region_ids   = [1, 2, 3];
-
-        region_mask_file = [preproc_ocean 'Basins/HistRun_Regions.mat'];
-        if ~exist([preproc_ocean 'Basins'], 'dir'), mkdir([preproc_ocean 'Basins']); end
-        save(region_mask_file, 'reg_vert', 'reg_elem', 'region_names', 'region_ids', '-v7.3');
-        fprintf('Saved: %s\n', region_mask_file);
-
-        % --- Diagnostic: modelled cumulative mass change per region, with fitted trend ---
-        rhoi = md.materials.rho_ice;
-        nR   = length(region_ids);
-        nT   = length(md.results.TransientSolution);
-        time = zeros(1, nT);
-        dMass = zeros(nR, nT);
-
-        x1 = md.mesh.x(md.mesh.elements(:,1));  y1 = md.mesh.y(md.mesh.elements(:,1));
-        x2 = md.mesh.x(md.mesh.elements(:,2));  y2 = md.mesh.y(md.mesh.elements(:,2));
-        x3 = md.mesh.x(md.mesh.elements(:,3));  y3 = md.mesh.y(md.mesh.elements(:,3));
-        elem_area = 0.5 * abs((x2-x1).*(y3-y1) - (x3-x1).*(y2-y1));
-
-        H0_vert = md.results.TransientSolution(1).Thickness;
-        for t = 1:nT
-            time(t) = md.results.TransientSolution(t).time;
-            H_vert  = md.results.TransientSolution(t).Thickness;
-            dH_vert = H_vert - H0_vert;
-            dH_elem = mean(dH_vert(md.mesh.elements), 2);
-            for r = 1:nR
-                mask = (reg_elem == region_ids(r));
-                dMass(r, t) = sum(dH_elem(mask) .* elem_area(mask)) * rhoi / 1e12;  % Gt
-            end
-        end
-
-        figure('visible','off');
-        cols = {'b','r','g'};
-        hold on;
-        for r = 1:nR
-            plot(time, dMass(r,:), cols{r}, 'LineWidth', 1.5, 'DisplayName', region_names{r});
-            p = polyfit(time, dMass(r,:), 1);
-            plot(time, polyval(p, time), [cols{r} '--'], 'LineWidth', 1, ...
-                 'DisplayName', sprintf('%s fit (%.1f Gt/yr)', region_names{r}, p(1)));
-        end
-        plot(time, sum(dMass,1), 'k-', 'LineWidth', 1.5, 'DisplayName', 'AIS total');
-        xlabel('Year'); ylabel('\DeltaMass (Gt)');
-        title('Modelled cumulative mass change per region with fitted trend');
-        legend('Location','southwest'); grid on;
-        if ~exist('./figures','dir'), mkdir('./figures'); end
-        saveas(gcf, './figures/Assign_Regions_mass_trend.png');
-        fprintf('Saved: figures/Assign_Regions_mass_trend.png\n');
-    end % }}}
 
     % ================================================================= Step 8
     if perform(org, 'HistRun_Assessment') % {{{

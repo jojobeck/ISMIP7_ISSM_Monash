@@ -25,8 +25,8 @@ module load matlab_licence/monash
 # source $ISSM_DIR/scripts/startup.sh
 
 steps=[5,7]
-steps=[5]
-loadonly=[0]
+steps=[10]
+loadonly=[1]
 # tuning_func (init / inversion / relaxation pipeline):
 # matlab -nodisplay -nosplash -r "addpath('$ISSM_DIR/src/m/dev'); devpath; addpath('$ISSM_DIR/lib'); outputDir='$PBS_JOBFS'; numberOfWorkers=$PBS_NCPUS; tuning_func($steps, $loadonly), quit" >FuncInit2.log
 # hist_run_tune_CESM_WACCM (historical validation run):
