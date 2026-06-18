@@ -16,16 +16,19 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
 %   1  CESM_TF_hist        build annual TF mat 1995-2020 (2015-2020 = 2014 repeated)
 %   2  CESM_SMB_hist       build annual SMB mat (CESM anomaly + RACMO clim, SMBgradients)
 %   3  Greene_levelset     build spclevelset time series from icemask_greene
-%   4  HistRun             transient 1995-2020 (loadonly=0 submit, =1 gather)
-%   5  HistRun_Validation             SMB timeseries + ice mask maps + BMB maps vs obs
-%   6  Assign_Regions                 build & save WAIS/EAIS/Peninsula mask (vertices+elements)
+%   4  Relaxed_CESM_WACCM  short 1-year run (1995->1996) under real CESM_WACCM
+%                          forcing, used only to relax inputmodel_relax's
+%                          geometry/ocean_levelset before HistRun starts
+%   5  HistRun             transient 1995-2020 (loadonly=0 submit, =1 gather)
+%   6  HistRun_Validation             SMB timeseries + ice mask maps + BMB maps vs obs
+%   7  Assign_Regions                 build & save WAIS/EAIS/Peninsula mask (vertices+elements)
 %                                     + modelled mass-change-per-region trend figure
-%   7  HistRun_Assessment             mass loss by region vs Otosaka
-%   8  HistRun_CorrectSMB             rerun transient with region-scaled SMB
-%                                     (1+p_calc_corr from step 7, capped +/-25%)
-%   9  HistRun_CorrectSMB_Assessment  mass loss by region vs Otosaka, after SMB correction
+%   8  HistRun_Assessment             mass loss by region vs Otosaka
+%   9  HistRun_CorrectSMB             rerun transient with region-scaled SMB
+%                                     (1+p_calc_corr from step 8, capped +/-25%)
+%   10 HistRun_CorrectSMB_Assessment  mass loss by region vs Otosaka, after SMB correction
 %
-% TODO (step 6): confirm that regions in sectors_8km.nc are 1=WAIS 2=EAIS 3=Peninsula
+% TODO (step 7): confirm that regions in sectors_8km.nc are 1=WAIS 2=EAIS 3=Peninsula
 
     if ~exist('loadonly','var'), loadonly = 0; end
     addpath('./scripts');
@@ -267,9 +270,118 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
     end % }}}
 
     % ================================================================= Step 4
-    if perform(org, 'HistRun') % {{{
+    if perform(org, 'Relaxed_CESM_WACCM') % {{{
+        % Short 1-year run (1995 -> 1996) using the real CESM_WACCM ocean/SMB/
+        % calving forcing, used only to relax the static inputmodel_relax
+        % geometry into one that is dynamically consistent with this forcing.
+        % inputmodel_relax was relaxed under different (steady/inversion)
+        % conditions, so switching on the real time-varying forcing at the
+        % start of HistRun produces a sharp initial jump; absorbing that
+        % adjustment here first, then starting HistRun from the result,
+        % removes it from the recorded 1995-2020 series.
+        %
+        % Mirrors tuning_func.m's 'Relaxed' step: take the final state of a
+        % transient and fold it back into geometry/mask as the new initial
+        % condition (Base, Thickness, Surface, ocean_levelset, ice_levelset).
+        % All of these are folded back together so the new initial state
+        % stays internally consistent -- updating ice_levelset on its own,
+        % without the matching geometry/ocean_levelset, is what introduces
+        % inconsistency, not updating it as part of this joint fold-back.
 
         md = loadmodel(inputmodel_relax);
+        m  = ((1+sin(71*pi/180))*ones(md.mesh.numberofvertices,1) ...
+              ./ (1+sin(abs(md.mesh.lat)*pi/180)));
+        md.mesh.scale_factor = (1./m).^2;
+
+        md.inversion.iscontrol       = 0;
+        md.transient.isthermal       = 0;
+        md.transient.isgroundingline = 1;
+        md.transient.ismasstransport = 1;
+        md.transient.isstressbalance = 1;
+        md.masstransport.spcthickness   = NaN*ones(md.mesh.numberofvertices, 1);
+        md.outputdefinition.definitions = {};
+        md.timestepping.interp_forcing  = 1;
+
+        md.timestepping.start_time = start_year;
+        md.timestepping.final_time = start_year + 1;   % single year: 1995 -> 1996
+        md.timestepping.time_step  = 1/12.;
+        md.settings.output_frequency = 12;   % one snapshot, at the end
+
+        md.transient.requested_outputs = { ...
+            'default', ...
+            'IceVolume', 'IceVolumeAboveFloatation', ...
+            'GroundedArea', 'FloatingArea', ...
+            'TotalSmb', 'TotalGroundedBmb', 'TotalFloatingBmb', ...
+            'IceVolumeAboveFloatationScaled', ...
+            'Thickness', ...
+            'MaskOceanLevelset', 'MaskIceLevelset', ...
+            'SmbMassBalance', ...
+            'BasalforcingsFloatingiceMeltingRate'};
+
+        md.groundingline.migration              = 'SubelementMigration';
+        md.groundingline.friction_interpolation = 'SubelementFriction1';
+        md.groundingline.melt_interpolation     = 'SubelementMelt1';
+
+        % --- Ocean (same as HistRun) ---
+        load([preproc_ocean 'Basins/Imbie2_extrap_2km_BasinOnElements.mat']);
+        load([preproc_ocean 'tf_depths.mat']);
+        load([preproc_front 'CESM_WACCM_TF_' num2str(start_year) '_' num2str(end_year) '.mat']);
+        load([preproc_ocean 'gamma0_local.mat']);
+
+        unique_basinid = unique(basinid);
+        delta_t        = zeros(1, length(unique_basinid));
+
+        md.basalforcings            = basalforcingsismip6(md.basalforcings);
+        md.basalforcings.basin_id   = basinid;
+        md.basalforcings.num_basins = length(unique_basinid);
+        md.basalforcings.tf_depths  = tf_depths;
+        md.basalforcings.tf         = tf_hist;
+        md.basalforcings.islocal    = 1;
+        md.basalforcings.delta_t    = delta_t;
+        md.basalforcings.gamma_0    = gamma0_local;
+
+        % --- SMB (same as HistRun) ---
+        load([preproc_atmo 'CESM_WACCM_SMB_' num2str(start_year) '_' num2str(end_year) '.mat']);
+        md.smb        = SMBgradients();
+        md.smb.smbref = smb_forcing;
+        md.smb.b_pos  = bgrad_forcing;
+        md.smb.b_neg  = bgrad_forcing;
+        md.smb.href   = [md.geometry.surface ; start_year];
+
+        % --- Calving front (same as HistRun) ---
+        md.calving.calvingrate         = zeros(md.mesh.numberofvertices,1);
+        md.frontalforcings.meltingrate = zeros(md.mesh.numberofvertices,1);
+        md.transient.ismovingfront = 1;
+        load([preproc_front 'Greene_spclevelset_' num2str(start_year) '_' num2str(end_year) '.mat']);
+        md.levelset.spclevelset = greene_spclevelset;
+
+        md.miscellaneous.name = 'Relaxed_CESM_WACCM';
+        clustername = 'gadi';
+        md.cluster  = set_cluster(clustername);
+        md.settings.waitonlock = 0;
+        md.verbose = verbose('solution', true, 'module', true, 'convergence', false);
+        md = solve(md, 'tr', 'runtimename', false, 'loadonly', loadonly);
+
+        if loadonly
+            md_in=md;
+            base = md_in.results.TransientSolution(end).Base;
+            thickness = md_in.results.TransientSolution(end).Thickness;
+            surface = md_in.results.TransientSolution(end).Surface;
+            md.geometry.thickness = thickness;
+            md.geometry.surface = surface;
+            md.geometry.base = base;
+            md.mask.ocean_levelset= md_in.results.TransientSolution(end).MaskOceanLevelset; 
+            md.mask.ice_levelset= md_in.results.TransientSolution(end).MaskIceLevelset; 
+            md.results.TransientSolution = [];
+            savemodel(org,md);
+
+        end
+    end % }}}
+
+    % ================================================================= Step 5
+    if perform(org, 'HistRun') % {{{
+
+        md = loadmodel(org, 'Relaxed_CESM_WACCM');
         m  = ((1+sin(71*pi/180))*ones(md.mesh.numberofvertices,1) ...
               ./ (1+sin(abs(md.mesh.lat)*pi/180)));
         md.mesh.scale_factor = (1./m).^2;
@@ -345,14 +457,14 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
         clustername = 'gadi';
         md.cluster  = set_cluster(clustername);
         md.settings.waitonlock = 0;
-        md.verbose = verbose('solution', true, 'module', true, 'convergence', false);
+        md.verbose = verbose('solution', true, 'module', true, 'convergence',true);
         md = solve(md, 'tr', 'runtimename', false, 'loadonly', loadonly);
         if loadonly
             savemodel(org, md);
         end
     end % }}}
 
-    % ================================================================= Step 5
+    % ================================================================= Step 6
     if perform(org, 'HistRun_Validation') % {{{
         % Three validation figures before Otosaka comparison:
         %   Fig 1: Total AIS SMB over time  (model TotalSmb vs integrated smb_forcing)
@@ -563,7 +675,7 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
 
     end % }}}
 
-    % ================================================================= Step 6
+    % ================================================================= Step 7
     if perform(org, 'Assign_Regions') % {{{
         % Build & save the WAIS / EAIS / Peninsula macro-region mask
         % (vertices + elements), analogous to tuning_func.m's 'Assign_Basins'
@@ -632,7 +744,7 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
         fprintf('Saved: figures/Assign_Regions_mass_trend.png\n');
     end % }}}
 
-    % ================================================================= Step 7
+    % ================================================================= Step 8
     if perform(org, 'HistRun_Assessment') % {{{
         md = loadmodel(org, 'HistRun');
         region_mask_file = [preproc_ocean 'Basins/HistRun_Regions.mat'];
@@ -642,11 +754,11 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
             'Cumulative mass change vs Otosaka et al.  (CESM2-WACCM hist+ssp126)');
     end % }}}
 
-    % ================================================================= Step 8
+    % ================================================================= Step 9
     if perform(org, 'HistRun_CorrectSMB') % {{{
         % Rerun the full 1995-2020 transient with the RACMO climatology
         % component of the SMB forcing scaled per region by 1+p_calc_corr
-        % from step 7's Otosaka assessment. The CESM year-to-year anomaly is
+        % from step 8's Otosaka assessment. The CESM year-to-year anomaly is
         % left untouched -- only the static climatological level is corrected.
         % Mirrors tuning_func_justine.m's
         % 'submit_from_Collapserelax20y_correctSMB_withC0.5'.
@@ -655,7 +767,7 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
         % Peninsula, which is hard to get right), so the scale factor is
         % capped to +/-25% (i.e. clamped to [0.75, 1.25]) for every region.
 
-        md = loadmodel(inputmodel_relax);
+        md = loadmodel(org, 'Relaxed_CESM_WACCM');
         m  = ((1+sin(71*pi/180))*ones(md.mesh.numberofvertices,1) ...
               ./ (1+sin(abs(md.mesh.lat)*pi/180)));
         md.mesh.scale_factor = (1./m).^2;
@@ -689,7 +801,7 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
         md.groundingline.friction_interpolation = 'SubelementFriction1';
         md.groundingline.melt_interpolation     = 'SubelementMelt1';
 
-        % --- Ocean (unchanged from step 4) ---
+        % --- Ocean (unchanged from step 5) ---
         load([preproc_ocean 'Basins/Imbie2_extrap_2km_BasinOnElements.mat']);
         load([preproc_ocean 'tf_depths.mat']);
         load([preproc_front 'CESM_WACCM_TF_' num2str(start_year) '_' num2str(end_year) '.mat']);
@@ -739,7 +851,7 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
         md.smb.b_neg  = bgrad_forcing;
         md.smb.href   = [md.geometry.surface ; start_year];
 
-        % --- Calving front (unchanged from step 4) ---
+        % --- Calving front (unchanged from step 5) ---
         md.calving.calvingrate         = zeros(md.mesh.numberofvertices,1);
         md.frontalforcings.meltingrate = zeros(md.mesh.numberofvertices,1);
         md.transient.ismovingfront = 1;
@@ -750,14 +862,14 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
         clustername = 'gadi';
         md.cluster  = set_cluster(clustername);
         md.settings.waitonlock = 0;
-        md.verbose = verbose('solution', true, 'module', true, 'convergence', false);
+        md.verbose = verbose('solution', true, 'module', true, 'convergence',true);
         md = solve(md, 'tr', 'runtimename', false, 'loadonly', loadonly);
         if loadonly
             savemodel(org, md);
         end
     end % }}}
 
-    % ================================================================= Step 9
+    % ================================================================= Step 10
     if perform(org, 'HistRun_CorrectSMB_Assessment') % {{{
         md = loadmodel(org, 'HistRun_CorrectSMB');
         region_mask_file = [preproc_ocean 'Basins/HistRun_Regions.mat'];
