@@ -235,7 +235,7 @@ function md = hist_run_CESM_WACCM_1995_2014(steps, loadonly)
         md.basalforcings.gamma_0    = gamma0_local;
 
         % --- SMB (reuse the existing 1995-2020 series) ---
-        load([preproc_atmo 'CESM_WACCM_SMB_' num2str(forcing_start_year) '_' num2str(forcing_end_year) '.mat']);
+        load([preproc_atmo 'CESM_WACCM_SMB_corrected_' num2str(forcing_start_year) '_' num2str(forcing_end_year) '.mat']);
         md.smb        = SMBgradients();
         md.smb.smbref = smb_forcing;
         md.smb.b_pos  = bgrad_forcing;
@@ -845,6 +845,7 @@ function flux_total_kgs = gl_flux_native_mesh(md, sol, apply_correction)
     good = (L > 0) & ~isnan(L);
     if ~any(good), return; end
     idx = idx(good); x1 = x1(good); y1 = y1(good); x2 = x2(good); y2 = y2(good); L = L(good);
+    dx = dx(good); dy = dy(good);
 
     Nx = -dy ./ L; Ny = dx ./ L;
     Vx1 = vx(idx);   Vy1 = vy(idx);   H1 = h(idx);

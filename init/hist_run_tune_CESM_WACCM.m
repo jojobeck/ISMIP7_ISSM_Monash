@@ -845,6 +845,18 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
         smb_corr_matrix  = p_vert .* smb_racmo + (smb_matrix - smb_racmo);
         smb_forcing_corr = [smb_corr_matrix ; smb_forcing(end, :)];
 
+        % Save corrected forcing so hist_run_CESM_WACCM_1995_2014 and the
+        % projection scripts can load the same bias-corrected SMB without
+        % re-deriving p_vert. smb_forcing is overwritten here with the
+        % corrected version so the saved variable name matches the uncorrected
+        % mat -- downstream scripts only need a filename change, not a
+        % variable rename. p_vert is also saved so the projection script can
+        % load it to apply the same correction to the SSP anomaly series.
+        smb_forcing = smb_forcing_corr;
+        save([preproc_atmo 'CESM_WACCM_SMB_corrected_' num2str(start_year) '_' num2str(end_year) '.mat'], ...
+             'smb_forcing', 'bgrad_forcing', 't_smb', 'p_vert', '-v7.3');
+        fprintf('Saved corrected SMB: %s\n', [preproc_atmo 'CESM_WACCM_SMB_corrected_' num2str(start_year) '_' num2str(end_year) '.mat']);
+
         md.smb        = SMBgradients();
         md.smb.smbref = smb_forcing_corr;      % region-corrected RACMO clim + CESM anomaly
         md.smb.b_pos  = bgrad_forcing;
