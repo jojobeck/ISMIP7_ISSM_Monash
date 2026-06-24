@@ -55,8 +55,9 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
 
     preproc_ocean = './../preprocessed_data/Ocean/';
     preproc_atmo  = './../preprocessed_data/Atmosphere/Hist/';
+    preproc_clim  = './../preprocessed_data/Atmosphere/Clim/CESM2-WACCM/';
     preproc_front = './../preprocessed_data/Ocean/Hist/';
-    for d = {preproc_atmo, preproc_front}
+    for d = {preproc_atmo, preproc_clim, preproc_front}
         if ~exist(d{1}, 'dir'), mkdir(d{1}); end
     end
 
@@ -214,7 +215,9 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
 
         save([preproc_atmo 'CESM_WACCM_SMB_' num2str(start_year) '_' num2str(end_year) '.mat'], ...
              'smb_forcing', 'bgrad_forcing', 't_smb', '-v7.3');
-        fprintf('Saved SMB forcing.\n');
+        save([preproc_clim 'CESM_WACCM_SMB_clim_' num2str(start_year) '_' num2str(hist_end) '.mat'], ...
+             'smb_racmo', 'cesm_mean', '-v7.3');
+        fprintf('Saved SMB forcing and climatology.\n');
     end % }}}
 
     % ================================================================= Step 3
@@ -823,11 +826,7 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
         load([preproc_atmo 'CESM_WACCM_SMB_' num2str(start_year) '_' num2str(end_year) '.mat']);
         smb_matrix = smb_forcing(1:end-1, :);   % mm w.e. yr-1, [nVerts x nyears]
 
-        x_r = double(ncread(racmo_clim_nc, 'x'));
-        y_r = double(ncread(racmo_clim_nc, 'y'));
-        smb_racmo = InterpFromGridToMesh(x_r, y_r, ...
-                        double(ncread(racmo_clim_nc, 'smb_rec'))', ...
-                        md.mesh.x, md.mesh.y, 0);   % mm w.e. yr-1, [nVerts x 1]
+        load([preproc_clim 'CESM_WACCM_SMB_clim_' num2str(start_year) '_' num2str(hist_end) '.mat'], 'smb_racmo');
 
         load([preproc_ocean 'Basins/HistRun_Regions.mat'], 'reg_vert', 'region_names', 'region_ids');
 

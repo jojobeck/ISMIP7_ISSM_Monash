@@ -24,7 +24,6 @@ module load matlab/R2021b
 module load matlab_licence/monash
 # source $ISSM_DIR/scripts/startup.sh
 
-steps=[5,7]
 steps=[9]
 loadonly=[1]
 # tuning_func (init / inversion / relaxation pipeline):

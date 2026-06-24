@@ -22,7 +22,7 @@ module load petsc/3.17.4
 module load matlab/R2021b
 module load matlab_licence/monash
 
-steps=[1]
+steps=[5]
 loadonly=[1]
 # hist_run_CESM_WACCM_1995_2014: submit step 1 (HistRun_1995_2014), loadonly=0
 # Once the PBS solve finishes, rerun with steps=[1] loadonly=[1] to gather,
