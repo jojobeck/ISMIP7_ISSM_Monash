@@ -133,6 +133,51 @@ exact dims/coords each must have.
   HPC outputs). Only the driver scripts (`init/*.m`, `init/*.py`, `init/*.sh`,
   `init/scripts/`, `init/Par/`) and the python tuning toolbox are tracked.
 
+## SMB class unit contracts
+
+`SMBgradients.smbref` and `SMBforcing.mass_balance` expect **different units**:
+
+| Class | Field | Expected units | ISSM internal conversion |
+|---|---|---|---|
+| `SMBgradients` | `smbref` | mm w.e. yr⁻¹ | applies `/1000 * rho_w/rho_i` internally (from C++ `smb_core`) |
+| `SMBforcing` | `mass_balance` | m ice yr⁻¹ | none — used directly |
+
+`smb_forcing` built by `ProjSMB` / `hist_run_tune_CESM_WACCM.m` is in **mm w.e. yr⁻¹**.
+When switching from `SMBgradients` to `SMBforcing` (e.g. a noSEF variant), convert first:
+
+```matlab
+rho_w = 1000.0;
+rho_i = md.materials.rho_ice;
+smb_mice = smb_forcing;
+smb_mice(1:end-1,:) = smb_forcing(1:end-1,:) / 1000.0 * (rho_w / rho_i);
+md.smb.mass_balance = smb_mice;
+```
+
+The last row of `smb_forcing` is the time axis (in years) and must **not** be converted.
+Passing mm w.e. yr⁻¹ directly to `mass_balance` gives values ~917× too large, causing
+immediate solver failure ("Recovery solver failed" on all ranks) within the first few
+simulated months.
+
+## Creating variant scripts
+
+When creating a new script that is a variant of an existing one (e.g. a `_noSEF` version
+of a projection script), **always read the corresponding section of the original script
+before writing** — never generate field names, output lists, configuration blocks, or
+function bodies from memory or general knowledge. Specifically:
+
+- Use the Read tool on the original file first, then copy shared sections verbatim.
+- For `ismip6_outputs`, `requested_outputs`, helper functions (`write_proj_netcdf_ismip6`,
+  `write_ismip6_2d`, `write_ismip6_scalar`, `flux_along_contour_2d`), and any
+  configuration block that must match the original exactly, read the source and copy —
+  do not paraphrase or reconstruct.
+- After creating the new file, diff the shared sections against the original to verify
+  they match: `grep -A30 'ismip6_outputs' original.m` vs the new file.
+
+Failure to do this has previously introduced wrong field names (`TotalCalvingFlux`,
+`BasalforcingsMassBalance`) and missing fields (`GroundinglineMassFlux`,
+`IcefrontMassFluxLevelset`, `TotalSmbScaled`) that caused silent data errors or
+runtime failures.
+
 ## Layout
 
 - `init/tuning_func.m` — init/spinup/inversion/relaxation pipeline.

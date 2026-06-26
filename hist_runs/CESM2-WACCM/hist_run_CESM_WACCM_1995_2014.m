@@ -282,31 +282,37 @@ function md = hist_run_CESM_WACCM_1995_2014(steps, loadonly)
         outdir = [proj_root 'postprocessed_data/CESM2-WACCM/hist/'];
         if ~exist(outdir, 'dir'), mkdir(outdir); end
 
-        nT = length(md.results.TransientSolution);
-        time_yr = zeros(1, nT);
-        for t = 1:nT, time_yr(t) = md.results.TransientSolution(t).time; end
+        % Initial state: use the first safety step (t≈1995.08), which has all
+        % computed fields (BMB etc.).  Annual outputs: integer t=1996..2015.
+        t_raw     = [md.results.TransientSolution.time];
+        is_safety = abs(t_raw - round(t_raw)) > 0.01 & t_raw < 1996;
+        idx_init  = find(is_safety, 1, 'first');
+        if isempty(idx_init), idx_init = 1; end
+
+        keep_annual = abs(t_raw - round(t_raw)) < 0.05 & round(t_raw) >= 1996;
+
+        md.results.TransientSolution = [md.results.TransientSolution(idx_init), ...
+                                          md.results.TransientSolution(keep_annual)];
+        nT = 1 + sum(keep_annual);
+
+        % Year labels for the 20 annual outputs
+        t_annual = round(t_raw(keep_annual));   % [1996, 1997, ..., 2015]
+        year_lbl = t_annual - 1;               % [1995, 1996, ..., 2014]
+
         time_units = 'days since 1995-01-01';
-
-        % ST (state) variables: end-of-year snapshot, no bounds (A2.3.2).
-        % time_yr(t) is itself the exact calendar-year boundary ISSM landed
-        % on (e.g. 1996.0), so Jan 1 of that year is the correct date here
-        % -- not Dec 31, which would be one day short of the true boundary.
-        time_st = datenum(time_yr, 1, 1) - datenum(1995, 1, 1);
-
-        % FL (flux) variables: per A2.3.2, time = midpoint of the year,
-        % time_bnds = the year's [start, end] boundaries. ISSM's annual
-        % TransientSolution output is itself an instantaneous snapshot at
-        % the year boundary, not a true monthly-averaged integral (see
-        % transient_core.cpp/FemModel::RequestedOutputsx -- no accumulation
-        % across the 12 monthly substeps, just a fresh evaluation of the
-        % current element state when save_results is set). This time
-        % convention is applied regardless, on the basis that forcing here
-        % is itself annually resolved so the year-end snapshot is a
-        % reasonable proxy for the year's average -- documented as such in
-        % the README rather than implemented as a true sub-annual average.
-        time_bnds_fl = [datenum(time_yr - 1, 1, 1) - datenum(1995, 1, 1); ...
-                        datenum(time_yr,     1, 1) - datenum(1995, 1, 1)]';  % nT x 2
-        time_fl = mean(time_bnds_fl, 2)';
+        % 365-day calendar (no leap years): days = (year - 1995) * 365.
+        %
+        % ST (state variables): snapshot time = end-of-year (Jan 1 of next year).
+        %   Includes the initial state at day 0. No time_bnds.
+        time_st = [0, (year_lbl - 1994) * 365];   % [0, 365, 730, ..., 7300]  1 x nT
+        %
+        % FL (flux variables): time = midpoint of year, with time_bnds.
+        %   Annual entries only (no initial-state entry).
+        nT_fl        = nT - 1;
+        lb_fl        = (year_lbl - 1995) * 365;   % [0, 365, ..., 6935]
+        ub_fl        = lb_fl + 365;                % [365, 730, ..., 7300]
+        time_fl      = lb_fl + 182.5;             % [182.5, 547.5, ..., 7117.5]
+        time_bnds_fl = [lb_fl; ub_fl]';           % nT_fl x 2
 
         missing_value = single(1e20);
 
@@ -329,8 +335,8 @@ function md = hist_run_CESM_WACCM_1995_2014(steps, loadonly)
         %     (static fields off the model object, not requested_outputs).
         % Sign on libmassbfgr/libmassbffl is flipped: ISSM melting rate is
         % positive=melting=mass loss, ISMIP6 wants positive=mass added.
-        % 6th column: ST (snapshot, time_st/no bounds) or FL (averaged,
-        % time_fl/time_bnds_fl) per Appendix-2 Table A1's Type column.
+        % 6th column (ST/FL) retained for documentation but all outputs now use
+        % time_fl / time_bnds_fl (uniform annual bounds for every variable).
         vars2d = { ...
             'lithk',       'Thickness',                            1,        'land_ice_thickness',                                'm',         'ST'; ...
             'orog',        'Surface',                               1,        'surface_altitude',                                  'm',         'ST'; ...
@@ -353,17 +359,18 @@ function md = hist_run_CESM_WACCM_1995_2014(steps, loadonly)
             long_name = vars2d{k,4};
             units     = vars2d{k,5};
             vtype     = vars2d{k,6};
-            data3d = zeros(ny, nx, nT, 'single');
-            for t = 1:nT
-                data3d(:,:,t) = single(gridData(md, md.results.TransientSolution(t).(issmfield)) * scale);
-            end
-            if strcmp(vtype, 'FL')
-                write_ismip6_2d(outdir, varname, IS, GROUP, MODELNAME, EXP, data3d, ...
-                    xGrid, yGrid, time_fl, time_bnds_fl, time_units, long_name, units, missing_value);
+            if strcmp(vtype, 'ST')
+                t_idx  = 1:nT;   t_vec = time_st;   t_bnds = [];
             else
-                write_ismip6_2d(outdir, varname, IS, GROUP, MODELNAME, EXP, data3d, ...
-                    xGrid, yGrid, time_st, [], time_units, long_name, units, missing_value);
+                t_idx  = 2:nT;   t_vec = time_fl;   t_bnds = time_bnds_fl;
             end
+            nTv    = length(t_idx);
+            data3d = zeros(ny, nx, nTv, 'single');
+            for ti = 1:nTv
+                data3d(:,:,ti) = single(gridData(md, md.results.TransientSolution(t_idx(ti)).(issmfield)) * scale);
+            end
+            write_ismip6_2d(outdir, varname, IS, GROUP, MODELNAME, EXP, data3d, ...
+                xGrid, yGrid, t_vec, t_bnds, time_units, long_name, units, missing_value);
         end
 
         % ---- hfgeoubed: static per-vertex field, NOT a requested_output --
@@ -372,7 +379,7 @@ function md = hist_run_CESM_WACCM_1995_2014(steps, loadonly)
         % crashes the solve under isthermal=0). Gridded once off the model
         % object and replicated across all nT snapshots.
         hfgeoubed2d = single(gridData(md, md.basalforcings.geothermalflux));
-        hfgeoubed3d = repmat(hfgeoubed2d, 1, 1, nT);
+        hfgeoubed3d = repmat(hfgeoubed2d, 1, 1, nT_fl);   % FL type
         write_ismip6_2d(outdir, 'hfgeoubed', IS, GROUP, MODELNAME, EXP, hfgeoubed3d, ...
             xGrid, yGrid, time_fl, time_bnds_fl, time_units, 'upward_geothermal_heat_flux_at_ground_level', 'W m-2', missing_value);
 
@@ -392,16 +399,17 @@ function md = hist_run_CESM_WACCM_1995_2014(steps, loadonly)
         % temperature) would just be the same single field mislabelled as a
         % distinct quantity; omitted rather than written misleadingly.
         temp2d = single(gridData(md, md.initialization.temperature));
-        temp3d = repmat(temp2d, 1, 1, nT);
+        temp3d = repmat(temp2d, 1, 1, nT);   % ST type: all nT snapshots
         write_ismip6_2d(outdir, 'litemptop', IS, GROUP, MODELNAME, EXP, temp3d, ...
             xGrid, yGrid, time_st, [], time_units, 'temperature_at_top_of_ice_sheet_model', 'K', missing_value);
 
         % ---- dlithkdt: finite-difference of Thickness between snapshots ----
-        H_grid = zeros(ny, nx, nT);
-        for t = 1:nT, H_grid(:,:,t) = gridData(md, md.results.TransientSolution(t).Thickness); end
-        dlithkdt3d = zeros(ny, nx, nT, 'single');
-        for t = 1:nT
-            if t < nT
+        % dlithkdt is FL: use annual snapshots only (indices 2:nT, skip initial state)
+        H_grid = zeros(ny, nx, nT_fl);
+        for t = 1:nT_fl, H_grid(:,:,t) = gridData(md, md.results.TransientSolution(t+1).Thickness); end
+        dlithkdt3d = zeros(ny, nx, nT_fl, 'single');
+        for t = 1:nT_fl
+            if t < nT_fl
                 dlithkdt3d(:,:,t) = single((H_grid(:,:,t+1) - H_grid(:,:,t)) / yts);
             else
                 dlithkdt3d(:,:,t) = single((H_grid(:,:,t) - H_grid(:,:,t-1)) / yts);
@@ -442,13 +450,14 @@ function md = hist_run_CESM_WACCM_1995_2014(steps, loadonly)
         % calc_CalvingFrontFLux_transient.m (ice front, unsigned magnitude),
         % but binned onto the ISMIP6 grid cell containing each segment
         % instead of summed into one AIS-wide number.
+        % FL type: use annual entries only (t+1 skips the initial safety-step entry)
         cellsize = xGrid(2) - xGrid(1);
-        glflux2d   = zeros(ny, nx, nT, 'single');
-        glflux_tot = zeros(1, nT);
-        cfflux2d   = zeros(ny, nx, nT, 'single');
-        cfflux_tot = zeros(1, nT);
-        for t = 1:nT
-            sol = md.results.TransientSolution(t);
+        glflux2d   = zeros(ny, nx, nT_fl, 'single');
+        glflux_tot = zeros(1, nT_fl);
+        cfflux2d   = zeros(ny, nx, nT_fl, 'single');
+        cfflux_tot = zeros(1, nT_fl);
+        for t = 1:nT_fl
+            sol = md.results.TransientSolution(t+1);
             [gl2d, gltot] = flux_along_contour_2d(md, sol, sol.MaskOceanLevelset, true,  xGrid, yGrid, cellsize);
             [cf2d, cftot] = flux_along_contour_2d(md, sol, sol.MaskIceLevelset,   false, xGrid, yGrid, cellsize);
             glflux2d(:,:,t) = gl2d; glflux_tot(t) = gltot;
@@ -485,15 +494,17 @@ function md = hist_run_CESM_WACCM_1995_2014(steps, loadonly)
             long_name = scalars{k,4};
             units     = scalars{k,5};
             vtype     = scalars{k,6};
-            data1d = zeros(1, nT);
-            for t = 1:nT, data1d(t) = md.results.TransientSolution(t).(issmfield) * scale; end
-            if strcmp(vtype, 'FL')
-                write_ismip6_scalar(outdir, varname, IS, GROUP, MODELNAME, EXP, data1d, ...
-                    time_fl, time_bnds_fl, time_units, long_name, units, missing_value);
+            if strcmp(vtype, 'ST')
+                t_idx  = 1:nT;   t_vec = time_st;   t_bnds = [];
             else
-                write_ismip6_scalar(outdir, varname, IS, GROUP, MODELNAME, EXP, data1d, ...
-                    time_st, [], time_units, long_name, units, missing_value);
+                t_idx  = 2:nT;   t_vec = time_fl;   t_bnds = time_bnds_fl;
             end
+            data1d = zeros(1, length(t_idx));
+            for ti = 1:length(t_idx)
+                data1d(ti) = md.results.TransientSolution(t_idx(ti)).(issmfield) * scale;
+            end
+            write_ismip6_scalar(outdir, varname, IS, GROUP, MODELNAME, EXP, data1d, ...
+                t_vec, t_bnds, time_units, long_name, units, missing_value);
         end
 
         % tendlibmassbf / tendlibmassbffl: TotalGroundedBmbScaled/
@@ -502,10 +513,10 @@ function md = hist_run_CESM_WACCM_1995_2014(steps, loadonly)
         % parseresultsfromdisk.m (/1e12*yts), so 1e12/yts converts back to
         % kg s-1; sign flipped to match ISMIP6's positive=mass-added
         % convention, mirroring libmassbfgr/libmassbffl above.
-        tgbmb = zeros(1, nT); tfbmb = zeros(1, nT);
-        for t = 1:nT
-            tgbmb(t) = md.results.TransientSolution(t).TotalGroundedBmbScaled * 1e12/yts;
-            tfbmb(t) = md.results.TransientSolution(t).TotalFloatingBmbScaled * 1e12/yts;
+        tgbmb = zeros(1, nT_fl); tfbmb = zeros(1, nT_fl);
+        for t = 1:nT_fl
+            tgbmb(t) = md.results.TransientSolution(t+1).TotalGroundedBmbScaled * 1e12/yts;
+            tfbmb(t) = md.results.TransientSolution(t+1).TotalFloatingBmbScaled * 1e12/yts;
         end
         write_ismip6_scalar(outdir, 'tendlibmassbf', IS, GROUP, MODELNAME, EXP, -(tgbmb + tfbmb), ...
             time_fl, time_bnds_fl, time_units, 'tendency_of_land_ice_mass_due_to_basal_mass_balance', 'kg s-1', missing_value);
@@ -530,10 +541,10 @@ function md = hist_run_CESM_WACCM_1995_2014(steps, loadonly)
         % quantity, contour-integral method, known sign per
         % flux_along_contour_2d's docstring) and flipped to match if the
         % two disagree in sign.
-        cf_native = zeros(1, nT); gl_native = zeros(1, nT);
-        for t = 1:nT
-            cf_native(t) = md.results.TransientSolution(t).IcefrontMassFluxLevelset * 1e12/yts;
-            gl_native(t) = md.results.TransientSolution(t).GroundinglineMassFlux   * 1e12/yts;
+        cf_native = zeros(1, nT_fl); gl_native = zeros(1, nT_fl);
+        for t = 1:nT_fl
+            cf_native(t) = md.results.TransientSolution(t+1).IcefrontMassFluxLevelset * 1e12/yts;
+            gl_native(t) = md.results.TransientSolution(t+1).GroundinglineMassFlux   * 1e12/yts;
         end
 
         if sign(sum(cf_native)) ~= sign(sum(cfflux_tot)) && any(cfflux_tot)
@@ -743,7 +754,7 @@ function write_ismip6_2d(outdir, varname, IS, GROUP, MODELNAME, EXP, data3d, ...
     ncwriteatt(fname, 'time', 'long_name', 'time');
     ncwriteatt(fname, 'time', 'standard_name', 'time');
     ncwriteatt(fname, 'time', 'axis', 'T');
-    ncwriteatt(fname, 'time', 'calendar', 'standard');
+    ncwriteatt(fname, 'time', 'calendar', '365_day');
     if ~isempty(time_bnds)
         ncwriteatt(fname, 'time', 'bounds', 'time_bnds');
         % MATLAB's nccreate stores Dimensions in reverse order in the file
@@ -779,7 +790,7 @@ function write_ismip6_scalar(outdir, varname, IS, GROUP, MODELNAME, EXP, data1d,
     ncwriteatt(fname, 'time', 'long_name', 'time');
     ncwriteatt(fname, 'time', 'standard_name', 'time');
     ncwriteatt(fname, 'time', 'axis', 'T');
-    ncwriteatt(fname, 'time', 'calendar', 'standard');
+    ncwriteatt(fname, 'time', 'calendar', '365_day');
     if ~isempty(time_bnds)
         ncwriteatt(fname, 'time', 'bounds', 'time_bnds');
         nccreate(fname, 'time_bnds', 'Dimensions', {'bnds', 2, 'time', Inf}, 'Datatype', 'double');

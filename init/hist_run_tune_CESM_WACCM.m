@@ -30,7 +30,7 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
 %
 % TODO (step 7): confirm that regions in sectors_8km.nc are 1=WAIS 2=EAIS 3=Peninsula
 
-    if ~exist('loadonly','var'), loadonly = 0; end
+    if ~exist('loadonly','var'), loadonly = 1; end
     addpath('./scripts');
 
     org = organizer('repository', './Models/', 'prefix', 'AIS_ISMIP7_', ...
