@@ -1,0 +1,892 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2821
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica-Bold;\f1\froman\fcharset0 Times-Roman;\f2\fswiss\fcharset0 Helvetica;
+\f3\fnil\fcharset0 Monaco;}
+{\colortbl;\red255\green255\blue255;\red0\green0\blue0;\red6\green6\blue6;\red255\green255\blue255;
+}
+{\*\expandedcolortbl;;\cssrgb\c0\c0\c0;\cspthree\c1786\c1786\c1786;\csgray\c100000;
+}
+\paperw11900\paperh16840\margl1440\margr1440\vieww18960\viewh18000\viewkind0
+\deftab720
+\pard\pardeftab720\qc\partightenfactor0
+
+\f0\b\fs29\fsmilli14667 \cf0 \expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 ISMIP7 Projections-Antarctica/Greenland Readme file\'a0
+\f1\b0\fs24 \
+\pard\pardeftab720\qc\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 June 2026
+\f1\fs24 \
+\pard\pardeftab720\partightenfactor0
+\cf0 \
+\
+\pard\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Contributor names, affiliations and emails:\'a0\'a0\
+Johanna Beckmann, Monash University, johanna.beckmann@moansh.edu
+\f1\fs24 \
+
+\f2\fs29\fsmilli14667 Date of submission:\'a0\'a030.06.202 (TODO)
+\f1\fs24 \
+\
+
+\f2\fs29\fsmilli14667 Ice Sheet Modeled/domain_id (ex: AIS or GrIS):\'a0AIS
+\f1\fs24 \
+
+\f2\fs29\fsmilli14667 Modeling group name/source_id (ex: BCG):\'a0Monash
+\f1\fs24 \
+
+\f2\fs29\fsmilli14667 Ice Sheet Model Name/ism_id (ex: ISSM): ISSM
+\f1\fs24 \
+
+\f2\fs29\fsmilli14667 \'a0
+\f1\fs24 \
+\pard\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \ul \ulc0 Initialization methods\ulnone \'a0
+\f1\fs24 \
+\pard\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 1. Describe the initialization method used, including assimilation of data, spin-up, or any other method.\'a0\'a0\
+The initial condition is obtained by data assimilation of present-day observations. \
+Original data input was modified to create "a close to 1995 state\'94:\
+	Initial data set are modified to "match more 1995".\
+	-present-day ice thickness/surface by BedMachine Antarctica v3 ( Morlighem, 2022)\
+	-subtracted the equivalent of 20 years of observed ice thinning rate :\
+	-Grounded ice from Schroeder et al. (2019)\
+	-Floating shelf B. Smith et al (2020)\
+	-Added Thwaites shelf back using Bedmap2 dataset (Fretwell et  al 2013)\
+	-For Amundsen sector slower Velocities 1996 (Rignot et al ,2014)\
+	Modified netcdf: Extras/BedMachineAntarcticav3_plusSECschroeder1992_plusSmithfloat.nc\
+\
+Adjoint inversion using ISSM's gradient-based optimization (M1QN3).  Two\
+sequential inversions are performed:\
+  (a) InversionB \'97 invert for ice rheology B (Paterson law), targeting observed\
+      surface velocities with a combination of velocity misfit and\
+      regularization cost functions.\
+  (b) InversionFriction1 \'97 invert for the basal friction coefficient C\
+      (Budd law, p=q=1), again targeting observed surface velocities.\
+A second-pass inversion (Inversion2B) refines B after the friction coefficient.\
+\
+The cost function minimizes the  misfit between modeled and observed surface velocities.\
+It includes both absolute and logarithmic misfits (Morlighem et al., 2010) as well as a2\
+regularization term. The weights assigned to each node in the cost function vary based\
+on current thinning rates (B. Smith et al., 2020) and height above flotation, such that\
+areas currently experiencing high thinning rates have higher weights in the relative mis\
+fit term and areas with a large height above flotation have a higher weight in the absolute \
+misfit term. To perform this thermal model simulation, we extrude the 2D mesh \
+to a 3D mesh, project the SSA velocities onto this 3D mesh surface and resolve thermal equation\
+ assuming steady-state conditions \
+ Based on the resulting three-dimensional temperature and velocity fields, viscosity and basal \
+friction coefficients are iteratively updated three times following the procedure described\
+ in Dawson et al. (2022). We then collapse the three-dimensional fields\
+back into a two-dimensional ice-sheet representation governed by the SSA equations\
+Then a 20-year free-surface relaxation brings the geometry toward a dynamically consistent state (with observed BMB field , and RACMO SMB Clim).\
+With this relaxed output ,  BMB parameter tuning after the tuning protocol was done.\
+A final one-year (1995) transient run under e.g. CESM2-WACCM historical forcing  with tuned K produces the\
+CESM-specific 1995 starting state used for all CESM2-WACCM experiments.\
+Then a history matching specific to the forcing scenario was done, such that the historic run until 2020 matches the mass load trends like in Otosaka. \
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 \
+\pard\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \
+
+\f2\fs29\fsmilli14667 2. What are the tuning targets, constraints and outputs of your initialization procedure?\'a0\
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 \
+\pard\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0Inversion targets: MEaSUREs observed surface velocity field (Mouginot 2019,\
+with low-velocity gap-filling from MeasuresChange).\
+Cost functions: velocity misfit + Tikhonov regularization on B and C.\
+SMB correction tuning \
+after the historical run (1995\'962020), modelled mass change per region is compared\
+against GRACE/GRACE-FO observations (Otosaka et al. 2023) by comparing mass trends. \
+ A per-region scale\
+factor p_vert is applied to the RACMO climatology component to minimize the\
+trend mismatch (WAIS +5.5 %, EAIS +3.6 %, Peninsula \uc0\u8722 2.8 %, capped at \'b125 %).\
+BMB is tuned after the tuning protocol.\
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 \
+\pard\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 3. What procedures do you use to validate the initial conditions and/or the recent changes observed, or tests that you apply to the final state of your initialization method?\'a0\'a0\
+The Relaxed state CESM2-WACCM is used to calculate the RMSE velocity (33.1 m/yr )and thickness (  9.9 m  ) against the input data;\
+\
+The CESM2-WACCM historical run (1995\'962014) is validated against:\
+  - GRACE/GRACE-FO regional mass change trends by basin (Otosaka et al. 2023,\
+    WAIS / EAIS / Peninsula), evaluated in hist_run_tune step HistRun_Assessment.(see 5)\
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 \
+\pard\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \
+
+\f2\fs29\fsmilli14667 4. What dataset is used for the SMB or ocean climatology? Are calving fronts and ice margins held fixed or allowed to evolve during spin-up?\'a0
+\f1\fs24 \
+
+\f2\fs29\fsmilli14667 \'a0RACMO2.3p2, Antarctic domain, 1995\'962014 annual mean from provided for 2km output. (smb_rec.mean.1995-2014.RACMO2.3p2_ANT27_ERA5-3h.AIS.2km.YY.nc) \
+Margins and grounding line are allowed to evolve during relaxation. \
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 \
+\pard\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 5. Do you apply corrections, such as SMB corrections during your initialization? Please provide a description.\'a0\
+Yes (not for inversion or relaxation, but for historic runs and projections)\
+\
+(a) Regional RACMO climatology scaling:\
+The annual RACMO 1995\'962014 climatology component is multiplied by a per-vertex factor\
+p_vert derived to match GRACE/GRACE-FO mass change trends (Otosaka et al. 2023):\
+  WAIS:       +5.5 %\
+  EAIS:       +3.6 %\
+  Peninsula:  \uc0\u8722 2.8 %\
+\
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 \
+\pard\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \
+\pard\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \ul \ulc0 Projections\ulnone \'a0
+\f1\fs24 \
+
+\f2\fs29\fsmilli14667 \ul AIS Ice-ocean and ice shelf fracture questions:
+\f1\fs24 \ulnone \
+\pard\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 6.\'a0 What parameterization did you use to compute the ocean induced melt under the ice shelves? What parameters does the parameterisation contain, and what values do you use for those (e.g., paste your parameter optimisation using the toolbox here and explain which parameters you chose and the rationale)? Do you use any basin-wide /local temperature adjustments? Do you melt partially floating cells, and if yes, how is melting applied?\'a0 Do you melt vertical ice fronts, and if yes, what parameterisation and parameters do you use? Provide the equation if possible\
+\
+Local quadratic ISMIP6 parameterisation (basalforcingsismip6, islocal = 1).\
+Melt rate per basin:\
+  m = \uc0\u947 \u8320  \'d7 (\u961 _sw c_po / (\u961 _i L_i))\'b2 \'d7 TF_local \'d7 |TF_local|\
+where TF_local is the thermal forcing at the local ice-shelf draft depth,\
+interpolated from the annual CESM2-WACCM ocean TF fields (\'b0C).\
+The melt coefficient \uc0\u947 \u8320  is taken from the ISMIP7 protocol (gamma0_local.mat).\
+No thermal forcing offset correction is applied: delta_t = 0 for all basins. AIS did slope is assumed (sin(alpha) = 0.0029).\
+Local Temperature.\
+Thermal forcing is clamped to \uc0\u8805  0 after interpolation to the mesh.\
+\
+Gave :\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f3\fs26 \cf3 \cb4 \kerning1\expnd0\expndtw0 \CocoaLigature0 \outl0\strokewidth0 gamma0_local (mode) = 1.1246e+04  (K_mode = 1.4500e-04)\
+ gamma0_local_5th    = 9.3069e+03  (K_5th  = 1.2000e-04)\
+gamma0_local_50th   = 1.2409e+04  (K_50th = 1.6000e-04)\
+gamma0_local_95th   = 1.7644e+04  (K_95th = 2.2750e-04)\
+
+\f2\fs29\fsmilli14667 \cf0 \cb1 \expnd0\expndtw0\kerning0
+\CocoaLigature1 \outl0\strokewidth0 \strokec2 \
+Chose gamma_0 local (mode) gave highest Relative frequency \
+No melting of vertical ice fronts. \
+\
+\pard\pardeftab720\partightenfactor0
+\cf0 Partially floating elements are handled by ISSM's SubelementMelt1 scheme.\
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 \
+\
+\
+\pard\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 7. What parameterization is used to migrate the grounding line? How are partially floating cells treated?\'a0\
+Grounding line migration: SubelementMigration (ISSM).\
+Partially floating cells: SubelementFriction1 for basal friction,\
+SubelementMelt1 for basal melt at partially floating elements.\
+The floating criterion uses the standard hydrostatic flotation conditi
+\f1\fs24 \
+\
+
+\f2\fs29\fsmilli14667 8. What is your approach to representing calving? What calving law or calving rate is used? Do you use any subgrid-scale schemes? How are the parameters of the calving law calibrated? \
+\
+Ice front position is prescribed via a level-set spclevelset time series built\
+from the ISMIP7 annual ice-shelf-collapse mask\
+(fracture/ice_shelf_collapse_mask_<model>_<scenario>_ismip7_8km.nc; source:\
+Greene et al., AntarcticaObsISMIP7-v1.2 for the historical period).\
+The mask is made cumulative so that once a shelf collapses it remains\
+constrained for the rest of the simulation.  No dynamic calving law is used;\
+the calving rate is set to zero and front migration is entirely controlled by\
+the prescribed levelset.
+\f1\fs24 \
+\
+\
+
+\f2\fs29\fsmilli14667 9. How is ice shelf collapse implemented? Does it include a condition on stress and if so which one?\
+See 8.
+\f1\fs24 \
+\
+
+\f2\fs29\fsmilli14667 10. How are tributary glaciers treated following ice shelves collapse?\'a0
+\f1\fs24 \
+\
+
+\f2\fs29\fsmilli14667 11. Anything else relevant to understanding how you represented ocean forcing of the ice sheet in your model?\
+No
+\f1\fs24 \
+\
+\pard\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \ul \ulc0 GrIS Ice-ocean questions:
+\f1\fs24 \ulnone \
+\
+\pard\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 12. What is your typical spatial resolution near the calving fronts in your model?\
+ 3km 
+\f1\fs24 \
+\
+
+\f2\fs29\fsmilli14667 13. What is your approach to representing calving? What calving law or calving rate is used?\
+Levelest method.
+\f1\fs24 \
+\
+\
+
+\f2\fs29\fsmilli14667 14. How is calving front migration treated? Do you use any subgrid-scale schemes? How about ice shelf grounding line migration?\
+\
+I tested the historic simulation, and apply the levels set method but do not allow advance. 
+\f1\fs24 \
+\
+
+\f2\fs29\fsmilli14667 15. What approach/parameterisation is used to estimate submarine melt of approx. vertical calving fronts? What values do the parameters take? What about submarine melt of floating ice shelves? How are these submarine melt rates applied in your model, for example using a level-set or as an effective mass flux? Do you use any subgrid-scale schemes in the implementation of these processes?\
+\
+No vertical melting applied .
+\f1\fs24 \
+\
+\
+
+\f2\fs29\fsmilli14667 16. Did you follow any calibration procedure for the representation of melt and calving? If so, did you use observations, over what time period and over what spatial scale?\
+I used the BMB tuning protocol so observations and Model output for warm and cold cavities. 
+\f1\fs24 \
+\
+
+\f2\fs29\fsmilli14667 17. Did you use the provided forcing fields (Q/TF) or something you derived yourself? For example did you do any regridding of Q/TF to your model grid and if so, how? Do you retain multiple forcing values for a single glacier or somehow amalgamate? For subglacial discharge did you use the provided fields directly or calculate your own based on SMB/runoff?\
+\
+Used the provided TF fields. (Interpolated on mesh)
+\f1\fs24 \
+\
+
+\f2\fs29\fsmilli14667 18. Anything else relevant to understanding how you represented ocean forcing of the ice sheet in your model?
+\f1\fs24 \
+\
+
+\f2\fs29\fsmilli14667 \'a0
+\f1\fs24 \
+\pard\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \ul \ulc0 \'a0SMB questions:
+\f1\fs24 \ulnone \
+\pard\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 19. How did you implement SMB and what SMB corrections (e.g., surface elevation feedback) do you apply in the experiments?\'a0\
+ Standard experiment (C007): SMBgradients with lapse-rate correction (SEF active).\
+  SMB = p_vert \'d7 smb_racmo + (cesm_yr_ssp \uc0\u8722  cesm_hist_mean_1995_2014)\
+  + b_pos/b_neg \'d7 (surface \uc0\u8722  href)   [gradient correction applied by ISSM internally]\
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 \
+\pard\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \outl0\strokewidth0 p_vert is the correction derived from the historical simulation (5.)
+\f1\fs24 \outl0\strokewidth0 \strokec2 \
+\pard\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 20. Anything else relevant to understanding how you represented atmospheric forcing of the ice sheet in your model?
+\f1\fs24 \
+\
+\pard\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \ul \ulc0 GIA, bedrock and sea level questions:\'a0
+\f1\fs24 \ulnone \
+\pard\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 21. Do you include bedrock adjustments?\'a0
+\f1\fs24 \
+
+\f2\fs29\fsmilli14667 \'a0NO
+\f1\fs24 \
+
+\f2\fs29\fsmilli14667 22. What reference surface do you use for vertical heights including bed elevation and surface elevation? This should either be a reference geoid or reference ellipsoid. Bedmachine reports surface and bed elevations relative to EIGEN-6C4 geoid; Bedmap reports surface and bed elevations relative to gl04c geoid.\'a0\
+\pard\pardeftab720\partightenfactor0
+
+\fs29\fsmilli14667 \cf0 \outl0\strokewidth0  EIGEN-6C4 geoid
+\f1\fs24 \outl0\strokewidth0 \strokec2 \
+\pard\pardeftab720\partightenfactor0
+\cf0 \
+\pard\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 23. Explain the bedrock adjustment model and setup. Include all the chosen parameters. For ELRA, this would include relaxation time, flexural rigidity and the density of the mantle. For other bedrock adjustment models, include the assigned viscosity and density for each layer, and the lithospheric depth. Describe the spatial and temporal resolution and numerical methods employed. Dependent on which model is applied, include which of gravitational, rotational and deformational effects are included, how Love numbers are calculated and if the model is incompressible or compressible.\'a0
+\f1\fs24 \
+\
+
+\f2\fs29\fsmilli14667 24. Describe the spinup or initialization procedure, detailing how the bedrock state is prepared before the main experiment. This should include the goal of the spinup, such as reaching a steady state for a particular time, representing adjustment to loading changes over a specified period, or achieving another intended target configuration. If a relaxed bedrock state is defined in the setup, this should be described.\'a0
+\f1\fs24 \
+\
+
+\f2\fs29\fsmilli14667 25. The protocol requests that farfield sea-level change is not included. However, if it is, describe how it is applied.\'a0
+\f1\fs24 \
+\
+\
+\pard\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \ul \ulc0 Other general questions:
+\f1\fs24 \ulnone \
+\pard\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Describe how the ice-covered area was determined. Were glaciers removed from the periphery? What is the target ice mask of the model, if any? How is the constraint enforced (e.g. during runtime per negative SMB, as hard mask or in postprocessing)?
+\f1\fs24 \
+\
+
+\f2\fs29\fsmilli14667 Do you plan to participate in the Perturbed Parameter Ensemble (PPE) and/or Earth System Model experiments (ESM)? Which experiments do you plan to participate in and how many experiments do you plan to perform?\
+\
+All CORE experiments and \'85
+\f1\fs24 \
+\
+\
+
+\f2\fs29\fsmilli14667 Please write a summary paragraph that describes your model that can be used in the publications (see the ISMIP6 group publications). Include references.
+\f1\fs24 \
+\
+\
+\
+\
+\
+\pard\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \ul \ulc0 Model Characteristic Table
+\f1\fs24 \ulnone \
+\pard\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Please complete the following Model Characteristic Table for your core experiments - this information will be used as a summary table in the publication. There will be a spreadsheet for recording the information linked to non-core experiments (the PPE and ESM experiments). Here we would like to capture your current plans, please include the number.\'a0
+\f1\fs24 \
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrt\brdrnil \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth2720\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx2160
+\clvertalt \clshdrawnil \clwWidth3500\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalt \clshdrawnil \clwWidth3040\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx6480
+\clvertalt \clshdrawnil \clwWidth2900\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0  Characteristic\'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Sample answers (include references if applicable)
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0  Main suite of experiments
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Do you plan to change these as part of PPE?\'a0
+\f1\fs24 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth2720\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx2160
+\clvertalt \clshdrawnil \clwWidth3500\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalt \clshdrawnil \clwWidth3040\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx6480
+\clvertalt \clshdrawnil \clwWidth2900\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Mesh discretization\'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 unstructured anisotropic triangular mesh generated via BAMG (Bidimensional Anisotropic Mesh Generator), which produces a Delaunay triangulation with spatially variable resolution.\
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth2720\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx2160
+\clvertalt \clshdrawnil \clwWidth3500\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalt \clshdrawnil \clwWidth3040\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx6480
+\clvertalt \clshdrawnil \clwWidth2900\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Native Grid (horizontal and vertical)
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 H: anisotropic unstructured triangular mesh, resolution range, e.g. ~3 km near fast-flowing outlets to ~30 km in interior. V: depth-integrated (SSA, 1 layer)
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth2720\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx2160
+\clvertalt \clshdrawnil \clwWidth3500\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalt \clshdrawnil \clwWidth3040\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx6480
+\clvertalt \clshdrawnil \clwWidth2900\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Native Projection\'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 same as BedMachine\'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth2720\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx2160
+\clvertalt \clshdrawnil \clwWidth3500\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalt \clshdrawnil \clwWidth3040\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx6480
+\clvertalt \clshdrawnil \clwWidth2900\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Interpolation method to diagnostic grid\'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 ISMIP6 suggested procedure\'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth2720\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx2160
+\clvertalt \clshdrawnil \clwWidth3500\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalt \clshdrawnil \clwWidth3040\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx6480
+\clvertalt \clshdrawnil \clwWidth2900\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Time integration scheme; expected formal order of accuracy
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Backward Euler (theta-method, \uc0\u952  = 1); 1st order
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth2720\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx2160
+\clvertalt \clshdrawnil \clwWidth3500\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalt \clshdrawnil \clwWidth3040\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx6480
+\clvertalt \clshdrawnil \clwWidth2900\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Time Step\'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 1 month\'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth2720\clftsWidth3 \clheight516 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx2160
+\clvertalt \clshdrawnil \clwWidth3500\clftsWidth3 \clheight516 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalt \clshdrawnil \clwWidth3040\clftsWidth3 \clheight516 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx6480
+\clvertalt \clshdrawnil \clwWidth2900\clftsWidth3 \clheight516 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Advection scheme, including numerical method expected formal order of accuracy
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 SUPG (Streamline Upwind Petrov-Galerkin); finite element; 2nd order
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth2720\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx2160
+\clvertalt \clshdrawnil \clwWidth3500\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalt \clshdrawnil \clwWidth3040\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx6480
+\clvertalt \clshdrawnil \clwWidth2900\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Ice Flow Mechanics, including numerical method\'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 \
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Shallow-shelf approximation; finite difference method
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth2720\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx2160
+\clvertalt \clshdrawnil \clwWidth3500\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalt \clshdrawnil \clwWidth3040\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx6480
+\clvertalt \clshdrawnil \clwWidth2900\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Ice Rheology\'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 n=3\'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth2720\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx2160
+\clvertalt \clshdrawnil \clwWidth3500\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalt \clshdrawnil \clwWidth3040\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx6480
+\clvertalt \clshdrawnil \clwWidth2900\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Basal Sliding\'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Budd friction law, p = q = 1 ;strbasemag = C\'b2 \'d7 Neff \'d7 |u_b|. Coefficient C inverted from observed surface velocities.
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth2720\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx2160
+\clvertalt \clshdrawnil \clwWidth3500\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalt \clshdrawnil \clwWidth3040\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx6480
+\clvertalt \clshdrawnil \clwWidth2900\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Basal Hydrology\'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 None\'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth2720\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx2160
+\clvertalt \clshdrawnil \clwWidth3500\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalt \clshdrawnil \clwWidth3040\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx6480
+\clvertalt \clshdrawnil \clwWidth2900\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Ice shelve fracture
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Yes, using mask\'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth2720\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx2160
+\clvertalt \clshdrawnil \clwWidth3500\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalt \clshdrawnil \clwWidth3040\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx6480
+\clvertalt \clshdrawnil \clwWidth2900\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Advance and Retreat\'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Freely evolving grounded ice margin, grounding line, and calving front\'a0, no advance  for ice front . 
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth2720\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx2160
+\clvertalt \clshdrawnil \clwWidth3500\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalt \clshdrawnil \clwWidth3040\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx6480
+\clvertalt \clshdrawnil \clwWidth2900\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Grounding Line: Determination, Parameterization\'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 floating criterion\'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth2720\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx2160
+\clvertalt \clshdrawnil \clwWidth3500\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalt \clshdrawnil \clwWidth3040\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx6480
+\clvertalt \clshdrawnil \clwWidth2900\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Calving\'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 No calving, levelset method only
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth2720\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx2160
+\clvertalt \clshdrawnil \clwWidth3500\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalt \clshdrawnil \clwWidth3040\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx6480
+\clvertalt \clshdrawnil \clwWidth2900\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Initial Surface Mass Balance\'a0\'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 RACMO2.3p2 1995\'962014 annual climatology (region-corrected) + CESM2-WACCM anomaly
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth2720\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx2160
+\clvertalt \clshdrawnil \clwWidth3500\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalt \clshdrawnil \clwWidth3040\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx6480
+\clvertalt \clshdrawnil \clwWidth2900\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Do you include bedrock adjustment
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 No
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth2720\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx2160
+\clvertalt \clshdrawnil \clwWidth3500\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalt \clshdrawnil \clwWidth3040\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx6480
+\clvertalt \clshdrawnil \clwWidth2900\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Year (or range of years) assigned to initial condition\'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 1995
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth2720\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx2160
+\clvertalt \clshdrawnil \clwWidth3500\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalt \clshdrawnil \clwWidth3040\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx6480
+\clvertalt \clshdrawnil \clwWidth2900\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Parameters for ice,\'a0 ocean water and freshwater density (rho_i, rho_o, rho_w), gravitational acceleration (g), etc\'a0\'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 rho_i = 917kg m
+\fs17\fsmilli8800 \super -3
+\fs29\fsmilli14667 \nosupersub \'a0
+\f1\fs24 \
+
+\f2\fs29\fsmilli14667 rho_o = 1028kg m
+\fs17\fsmilli8800 \super -3
+\fs29\fsmilli14667 \nosupersub \'a0
+\f1\fs24 \
+
+\f2\fs29\fsmilli14667 rho_w = 1000kg m
+\fs17\fsmilli8800 \super -3
+\fs29\fsmilli14667 \nosupersub \'a0
+\f1\fs24 \
+
+\f2\fs29\fsmilli14667 g = 9.81 m s
+\fs17\fsmilli8800 \super -2
+\fs29\fsmilli14667 \nosupersub \'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth2720\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx2160
+\clvertalt \clshdrawnil \clwWidth3500\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalt \clshdrawnil \clwWidth3040\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx6480
+\clvertalt \clshdrawnil \clwWidth2900\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Variable in data request not included and reason\'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 (Strbasemag is diagnostic as there is no ISSM internal output)
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth2720\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx2160
+\clvertalt \clshdrawnil \clwWidth3500\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalt \clshdrawnil \clwWidth3040\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx6480
+\clvertalt \clshdrawnil \clwWidth2900\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Number of days per year
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 365
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrt\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth2720\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx2160
+\clvertalt \clshdrawnil \clwWidth3500\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalt \clshdrawnil \clwWidth3040\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx6480
+\clvertalt \clshdrawnil \clwWidth2900\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 Other comments\'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 None
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \cell \lastrow\row
+\pard\pardeftab720\partightenfactor0
+
+\f2\fs29\fsmilli14667 \cf0 \'a0
+\f1\fs24 \
+
+\f2\fs29\fsmilli14667 References linked to table:\'a0
+\f1\fs24 \
+
+\f2\fs29\fsmilli14667 \'a0
+\f1\fs24 \
+}
