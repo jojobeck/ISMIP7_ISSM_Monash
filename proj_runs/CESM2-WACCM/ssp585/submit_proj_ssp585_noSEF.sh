@@ -43,7 +43,7 @@ module load matlab_licence/monash
 #   Step 5: write ISMIP6 NetCDFs (slow, no PBS solve; may need longer walltime)
 #     steps=[5] loadonly=[1]
 
-steps=[3,4]
+steps=[5]
 loadonly=[1]
 
 matlab -nodisplay -nosplash -softwareopengl -r "addpath('$ISSM_DIR/src/m/dev'); devpath; addpath('$ISSM_DIR/lib'); outputDir='$PBS_JOBFS'; numberOfWorkers=$PBS_NCPUS; proj_run_CESM_WACCM_ssp585_2015_2300_noSEF($steps, $loadonly), quit" >FuncProj_ssp585_noSEF.log

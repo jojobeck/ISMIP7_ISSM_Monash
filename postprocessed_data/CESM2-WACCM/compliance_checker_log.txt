@@ -1,0 +1,21 @@
+************************************************************************************
+*************     Ice Sheet Model Simulations - Compliance Checker     *************
+************************************************************************************
+Commit Number: '4a2db66' 
+verification criteria: conventions/ISMIP7_variable_request.csv
+date: 2026/06/29
+source: https://github.com/ismip/ISM_SimulationChecker 
+ 
+------------------------------------------------------------------------------------
+Verified directory: /home/565/jb1863/SAEF/ISMIP7_ISSM_Monash/postprocessed_data/CESM2-WACCM/ 
+------------------------------------------------------------------------------------
+ 
+ 
+ 
+ 
+====================================================================================
+================                DETAILED RESULTS                    ================
+====================================================================================
+Hint: Use Cltr+F to look for specific problems. 
+ 
+ERROR: No .nc files found in directory '/home/565/jb1863/SAEF/ISMIP7_ISSM_Monash/postprocessed_data/CESM2-WACCM/'. Please check your --source-path argument.

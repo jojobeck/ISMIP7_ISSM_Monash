@@ -1,0 +1,5 @@
+Area-weighted thickness RMSE — Relaxed_CESM_WACCM vs BedMachineAntarcticav3+SEC
+
+All ice:      RMSE=9.9 m  bias=-0.0 m
+All grounded: RMSE=6.9 m  bias=+0.1 m
+All floating: RMSE=23.3 m  bias=-1.0 m

@@ -158,6 +158,24 @@ Passing mm w.e. yr⁻¹ directly to `mass_balance` gives values ~917× too large
 immediate solver failure ("Recovery solver failed" on all ranks) within the first few
 simulated months.
 
+### `SMBgradients.href` reference surface
+
+`href` is the surface elevation at which `smbref` applies zero lapse-rate correction.
+It **must always be the 1995 relaxed surface** (`AIS_ISMIP7_Relaxed_CESM_WACCM.mat`),
+because `smbref` is built from the RACMO 1995 climatology.
+
+```matlab
+md_relax  = loadmodel([init_dir 'Models/AIS_ISMIP7_Relaxed_CESM_WACCM.mat']);
+md.smb.href = [md_relax.geometry.surface ; 1995];
+clear md_relax
+```
+
+Do **not** use `md.geometry.surface` from the segment start state (2015, 2151, …).
+Doing so shifts the lapse-rate neutral point forward in time, suppressing or inflating the
+accumulated SEF signal. The time value in the single-snapshot `href` column is not used
+by the solver (only matters for multi-snapshot interpolation), but should be set to 1995
+for documentation consistency.
+
 ## Creating variant scripts
 
 When creating a new script that is a variant of an existing one (e.g. a `_noSEF` version

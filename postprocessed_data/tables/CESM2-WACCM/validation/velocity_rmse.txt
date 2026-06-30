@@ -1,0 +1,7 @@
+Area-weighted velocity RMSE — Relaxed_CESM_WACCM vs MEaSUREs
+
+RMSE all ice:          33.1 m/yr
+RMSE grounded:         12.9 m/yr
+RMSE floating:         97.1 m/yr
+RMSE fast (>100 m/yr): 90.3 m/yr
+Bias (mod-obs) all:    +2.4 m/yr

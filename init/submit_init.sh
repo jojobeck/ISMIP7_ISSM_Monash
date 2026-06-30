@@ -24,11 +24,13 @@ module load matlab/R2021b
 module load matlab_licence/monash
 # source $ISSM_DIR/scripts/startup.sh
 
-steps=[9]
+steps=[3]
 loadonly=[1]
 # tuning_func (init / inversion / relaxation pipeline):
 # matlab -nodisplay -nosplash -r "addpath('$ISSM_DIR/src/m/dev'); devpath; addpath('$ISSM_DIR/lib'); outputDir='$PBS_JOBFS'; numberOfWorkers=$PBS_NCPUS; tuning_func($steps, $loadonly), quit" >FuncInit2.log
 # hist_run_tune_CESM_WACCM (historical validation run):
-matlab -nodisplay -nosplash -r "addpath('$ISSM_DIR/src/m/dev'); devpath; addpath('$ISSM_DIR/lib'); outputDir='$PBS_JOBFS'; numberOfWorkers=$PBS_NCPUS; hist_run_tune_CESM_WACCM($steps, $loadonly), quit" >FuncInit2.log
+# matlab -nodisplay -nosplash -r "addpath('$ISSM_DIR/src/m/dev'); devpath; addpath('$ISSM_DIR/lib'); outputDir='$PBS_JOBFS'; numberOfWorkers=$PBS_NCPUS; hist_run_tune_CESM_WACCM($steps, $loadonly), quit" >FuncInit2.log
+# validation tanles and figures
+matlab -nodisplay -nosplash -r "addpath('$ISSM_DIR/src/m/dev'); devpath; addpath('$ISSM_DIR/lib'); outputDir='$PBS_JOBFS'; numberOfWorkers=$PBS_NCPUS;  validate_AIS_ISMIP7($steps), quit" >FuncInit2.log
 # runs=[31]
 
