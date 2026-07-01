@@ -26,14 +26,12 @@ function write_ismip7_scalar_historical(md, outdir, meta, cfflux_tot, glflux_tot
     t_annual = round(t_raw(keep_annual));   % e.g. [1996, ..., 2015]
     year_lbl = t_annual - 1;               % nominal years [1995, ..., 2014]
 
-    % ---- time vectors -----------------------------------------------------
+    % ---- time vectors (days since 1850-01-01, standard Gregorian calendar) --
     ref_dn = datenum(1850, 1, 1);
-
     time_st = zeros(1, nT);
     for i = 1:nT
         time_st(i) = datenum(t_annual(i), 1, 1) - ref_dn;
     end
-
     lb_fl = zeros(1, nT); ub_fl = zeros(1, nT);
     for i = 1:nT
         lb_fl(i) = datenum(year_lbl(i),     1, 1) - ref_dn;

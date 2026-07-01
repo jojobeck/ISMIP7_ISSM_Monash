@@ -29,25 +29,21 @@ function [cfflux_tot, glflux_tot] = write_ismip7_2d_projection(md, outdir, meta)
     nT    = sum(keep);
 
     % ISSM convention: t=Y means end of year Y-1.
-    t_annual = round(t_raw(keep));   % [2016, ..., 2300]
-    time_yr  = t_annual - 1;         % [2015, ..., 2299]
+    t_annual = round(t_raw(keep));   % ISSM time [2016, ..., 2300]
+    time_yr  = t_annual - 1;         % calendar year [2015, ..., 2299]
 
-    % ---- time vectors (days since 1850-01-01, standard calendar) ----------
-    ref_dn = datenum(1850, 1, 1);
-
-    % ST: Jan 1 of t_annual = end-of-year snapshot.
+    % ---- time vectors (days since 1850-01-01, standard Gregorian calendar) --
+    % ST: Jan 1 of following year = date(yr+1,1,1) per ISMIP7 spec.
+    % FL: July 1 of labelled year (midpoint), bounds = [Jan 1 yr, Jan 1 yr+1].
+    ref_dn  = datenum(1850, 1, 1);
     time_st = zeros(1, nT);
+    lb_fl   = zeros(1, nT); ub_fl = zeros(1, nT); time_fl = zeros(1, nT);
     for i = 1:nT
-        time_st(i) = datenum(t_annual(i), 1, 1) - ref_dn;
+        time_st(i) = datenum(t_annual(i), 1,  1) - ref_dn;
+        lb_fl(i)   = datenum(time_yr(i),  1,  1) - ref_dn;
+        ub_fl(i)   = datenum(time_yr(i)+1,1,  1) - ref_dn;
+        time_fl(i) = datenum(time_yr(i),  7,  1) - ref_dn;
     end
-
-    % FL: midpoint of each labelled calendar year, with year bounds.
-    lb_fl = zeros(1, nT); ub_fl = zeros(1, nT);
-    for i = 1:nT
-        lb_fl(i) = datenum(time_yr(i),     1, 1) - ref_dn;
-        ub_fl(i) = datenum(time_yr(i) + 1, 1, 1) - ref_dn;
-    end
-    time_fl      = (lb_fl + ub_fl) / 2;
     time_bnds_fl = [lb_fl; ub_fl]';   % nT × 2
 
     % ---- grid setup -------------------------------------------------------
@@ -143,7 +139,7 @@ function [cfflux_tot, glflux_tot] = write_ismip7_2d_projection(md, outdir, meta)
     sftflf3d = zeros(ny, nx, nT, 'single');
     for t = 1:nT
         sol  = md.results.TransientSolution(t);
-        ice  = gridData(md, double(sol.MaskIceLevelset  <= 0), ...
+        ice  = gridData(md, double(sol.MaskIceLevelset  < 0), ...
             'xRange', [-3040000, 3040000], 'yRange', [-3040000, 3040000]);
         grnd = gridData(md, double(sol.MaskOceanLevelset >= 0), ...
             'xRange', [-3040000, 3040000], 'yRange', [-3040000, 3040000]);

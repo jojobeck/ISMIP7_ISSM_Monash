@@ -35,10 +35,13 @@ function md = proj_run_CESM_WACCM_ssp585_2015_2300(steps, loadonly)
 %   7  VAFContinuityCheck plot VAF (m SLE) from both segments on one axes;
 %                        checks junction at 2151 is continuous; saves figure to
 %                        postprocessed_data/figures/CESM2-WACCM/ssp585/
-%   8  WriteISMIP6_NetCDF grids the combined TransientSolution (steps 4+6)
+%   8  WriteISMIP6_NetCDF_test writes 4 variables to ssp585_test/ for quick
+%                        compliance checking (sftgif, iareagr, tendlibmassbfgr,
+%                        dlithkdt)
+%   9  WriteISMIP6_NetCDF grids the combined TransientSolution (steps 4+6)
 %                        onto the ISMIP6 8 km AIS grid and writes one NetCDF
 %                        per Appendix-2 variable into
-%                        postprocessed_data/CESM2-WACCM/proj/  (EXP='C007')
+%                        postprocessed_data/CESM2-WACCM/ssp585/  (EXP='C007')
 %
 %  noSEF sensitivity run lives in a separate script:
 %    proj_run_CESM_WACCM_ssp585_2015_2300_noSEF.m  (submit via submit_proj_ssp585_noSEF.sh)
@@ -82,9 +85,9 @@ function md = proj_run_CESM_WACCM_ssp585_2015_2300(steps, loadonly)
     % ------------------------------------------------------------------ time
     start_year  = 2015;
     mid_year    = 2150;   % phase 1 ends here (state saved at 2151)
-    end_year    = 2299;   % last year with available forcing; final snapshot
-                          % lands at t=end_year+1=2300 (same convention as
-                          % hist_run: final_time = end_year+1)
+    end_year    = 2300;   % last year with available forcing; final snapshot
+                          % lands at t=end_year+1=2301 → nominal year 2300
+                          % (ISMIP7 ssp585 requires 2015-2300 = 286 years)
     sec_to_year = 31556926;   % consistent with hist_run_tune_CESM_WACCM
 
     % ------------------------------------------------------------------ ISMIP6 outputs (same as hist run)
@@ -569,6 +572,100 @@ function md = proj_run_CESM_WACCM_ssp585_2015_2300(steps, loadonly)
     end % }}}
 
     % ================================================================= Step 8
+    if perform(org, 'WriteISMIP6_NetCDF_test') % {{{
+        % Quick 4-variable test: sftgif (ST 2D), iareagr (ST scalar),
+        % tendlibmassbfgr (FL scalar), dlithkdt (FL 2D).
+        % Output goes to postprocessed_data/CESM2-WACCM/ssp585_test/
+        addpath('./../../functions');
+
+        md1 = loadmodel(org, 'ProjRun_2015_2150');
+        md2 = loadmodel(org, 'ProjRun_2151_2300');
+        md = md1;
+        md.results.TransientSolution = [md1.results.TransientSolution, ...
+                                         md2.results.TransientSolution];
+        clear md1 md2;
+
+        outdir_test = [proj_root 'postprocessed_data/CESM2-WACCM/ssp585_test/'];
+        if ~exist(outdir_test, 'dir'), mkdir(outdir_test); end
+
+        meta_t                    = struct();
+        meta_t.experiment_id      = SCENARIO;
+        meta_t.set_counter        = 'C007';
+        meta_t.time_range         = '2015-2299';
+        meta_t.ESM_id             = CMIP_MODEL;
+        meta_t.forcing_member_id  = 'f001';
+        meta_t.ISM_member_id      = 'm001';
+
+        % ---- shared time setup (mirrors write_ismip7_2d_projection) ----------
+        t_raw       = [md.results.TransientSolution.time];
+        keep        = abs(t_raw - round(t_raw)) < 0.05;
+        ts          = md.results.TransientSolution(keep);
+        nT          = sum(keep);
+        t_annual     = round(t_raw(keep));   % ISSM time [2016, ..., 2300]
+        time_yr      = t_annual - 1;         % calendar year [2015, ..., 2299]
+        ref_dn       = datenum(1850, 1, 1);
+        time_st      = zeros(1, nT);
+        lb_fl        = zeros(1, nT); ub_fl = zeros(1, nT); time_fl = zeros(1, nT);
+        for i = 1:nT
+            time_st(i) = datenum(t_annual(i), 1, 1) - ref_dn;
+            lb_fl(i)   = datenum(time_yr(i),  1, 1) - ref_dn;
+            ub_fl(i)   = datenum(time_yr(i)+1,1, 1) - ref_dn;
+            time_fl(i) = datenum(time_yr(i),  7, 1) - ref_dn;
+        end
+        time_bnds_fl = [lb_fl; ub_fl]';
+
+        [~, xGrid, yGrid] = gridData(md, ts(1).Thickness, ...
+            'xRange', [-3040000, 3040000], 'yRange', [-3040000, 3040000]);
+        nx = length(xGrid); ny = length(yGrid);
+
+        % ---- sftgif (ST, 2D) -------------------------------------------------
+        sftgif3d = zeros(ny, nx, nT, 'single');
+        for t = 1:nT
+            ice = gridData(md, double(ts(t).MaskIceLevelset <= 0), ...
+                'xRange', [-3040000, 3040000], 'yRange', [-3040000, 3040000]);
+            sftgif3d(:,:,t) = single(max(0, min(1, ice)));
+        end
+        write_ismip7_2d(outdir_test, 'sftgif', sftgif3d, xGrid, yGrid, ...
+            time_st, [], 'land_ice_area_fraction', 'Land ice area fraction', '1', meta_t);
+
+        % ---- iareagr (ST, scalar) --------------------------------------------
+        iareagr_v = [ts.GroundedAreaScaled];
+        write_ismip7_scalar(outdir_test, 'iareagr', iareagr_v, time_st, [], ...
+            'grounded_ice_sheet_area', 'Grounded ice area', 'm^2', meta_t);
+
+        % ---- tendlibmassbfgr (FL, scalar) ------------------------------------
+        rhoi = md.materials.rho_ice;
+        tendlibmassbfgr_v = -[ts.TotalGroundedBmbScaled] * rhoi / md.constants.yts;
+        write_ismip7_scalar(outdir_test, 'tendlibmassbfgr', tendlibmassbfgr_v, ...
+            time_fl, time_bnds_fl, ...
+            'tendency_of_land_ice_mass_due_to_basal_mass_balance', ...
+            'Grounded basal mass balance flux', 'kg s-1', meta_t);
+
+        % ---- dlithkdt (FL, 2D) -----------------------------------------------
+        H_grid = zeros(ny, nx, nT);
+        for t = 1:nT
+            H_grid(:,:,t) = gridData(md, ts(t).Thickness, ...
+                'xRange', [-3040000, 3040000], 'yRange', [-3040000, 3040000]);
+        end
+        dlithkdt3d = zeros(ny, nx, nT, 'single');
+        for t = 1:nT
+            if t < nT
+                dlithkdt3d(:,:,t) = single((H_grid(:,:,t+1) - H_grid(:,:,t)) / md.constants.yts);
+            else
+                dlithkdt3d(:,:,t) = single((H_grid(:,:,t) - H_grid(:,:,t-1)) / md.constants.yts);
+            end
+        end
+        safe_max = single(1e-4);
+        if double(safe_max) > 1e-4, safe_max = safe_max - eps(safe_max); end
+        dlithkdt3d = max(single(-1e-4), min(safe_max, dlithkdt3d));
+        write_ismip7_2d(outdir_test, 'dlithkdt', dlithkdt3d, xGrid, yGrid, ...
+            time_fl, time_bnds_fl, 'tendency_of_land_ice_thickness', ...
+            'Ice thickness tendency', 'm s-1', meta_t);
+
+        fprintf('Test output written to %s\n', outdir_test);
+    end % }}}
+
+    % ================================================================= Step 9
     if perform(org, 'WriteISMIP6_NetCDF') % {{{
         % Combines the two TransientSolution arrays (steps 4 + 6), drops the
         % sub-annual safety step from each segment, and grids onto the standard

@@ -24,21 +24,19 @@ function write_ismip7_scalar_projection(md, outdir, meta, cfflux_tot, glflux_tot
     md.results.TransientSolution = md.results.TransientSolution(keep);
     nT    = sum(keep);
 
-    t_annual = round(t_raw(keep));
-    time_yr  = t_annual - 1;
+    t_annual = round(t_raw(keep));   % ISSM time [2016, ..., 2300]
+    time_yr  = t_annual - 1;         % calendar year [2015, ..., 2299]
 
-    % ---- time vectors -----------------------------------------------------
-    ref_dn = datenum(1850, 1, 1);
+    % ---- time vectors (days since 1850-01-01, standard Gregorian calendar) --
+    ref_dn  = datenum(1850, 1, 1);
     time_st = zeros(1, nT);
+    lb_fl   = zeros(1, nT); ub_fl = zeros(1, nT); time_fl = zeros(1, nT);
     for i = 1:nT
         time_st(i) = datenum(t_annual(i), 1, 1) - ref_dn;
+        lb_fl(i)   = datenum(time_yr(i),  1, 1) - ref_dn;
+        ub_fl(i)   = datenum(time_yr(i)+1,1, 1) - ref_dn;
+        time_fl(i) = datenum(time_yr(i),  7, 1) - ref_dn;
     end
-    lb_fl = zeros(1, nT); ub_fl = zeros(1, nT);
-    for i = 1:nT
-        lb_fl(i) = datenum(time_yr(i),     1, 1) - ref_dn;
-        ub_fl(i) = datenum(time_yr(i) + 1, 1, 1) - ref_dn;
-    end
-    time_fl      = (lb_fl + ub_fl) / 2;
     time_bnds_fl = [lb_fl; ub_fl]';
 
     % ---- standard scalar variables ----------------------------------------
