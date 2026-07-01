@@ -92,8 +92,8 @@ function meta = apply_meta_defaults(meta)
     if ~isfield(meta, 'domain_id'),     meta.domain_id     = 'AIS';    end
     if ~isfield(meta, 'group'),         meta.group         = 'Monash'; end
     if ~isfield(meta, 'model'),         meta.model         = 'ISSM';   end
-    if ~isfield(meta, 'contact_name'),  meta.contact_name  = 'Johannes Beckmann'; end
-    if ~isfield(meta, 'contact_email'), meta.contact_email = 'joha.beckmann@googlemail.com'; end
+    if ~isfield(meta, 'contact_name'),  meta.contact_name  = 'Johanna Beckmann'; end
+    if ~isfield(meta, 'contact_email'), meta.contact_email = 'johanna.beckmann@monash.edu'; end
 end
 
 function fname = ismip7_filename(outdir, varname, meta)
