@@ -27,8 +27,8 @@ function md=meltMIp(steps,j,loadonly)
   inputmodel_relax = './Models/AIS_ISMIP7_Relaxed.mat';
   path_dir = '/g/data/au88/jb1863/SAEF/ISMIP7_ISSM_Monash/init/./../scripts '
   directory = 'Data/Tables';
-  K_data = 0.25e-5 : 0.25e-5 : 3.0e-4
-  sin_alpha=0.0029 %np.arscin(2.9e-3);
+  K_data = 0.25e-5 : 0.25e-5 : 3.0e-4;
+  sin_alpha=0.0029; %np.arscin(2.9e-3);
   sec_to_year = 31556926;
   %S0 = 34.5
   %gT_to_K = 2*abs(f_coriolis)*rho_sw/(rho_i*g*beta_coeff_lazero*S0*sin_alpha*sec_to_year)
@@ -39,12 +39,18 @@ function md=meltMIp(steps,j,loadonly)
   end
 
   % =====================================================================
-  % Step map (run TF builders first, then melt runs, then gridding):
+  % Step map (run TF builders first, then dT tuning, then melt runs):
   %   TF builders : 1 Obs_clim_TF  2 OceanModelling_clim_TF  3 ObsData_clim_TF
-  %   melt runs   : 4 melt_run  5 melt_run_OceanModelling  6 melt_run_ObsData
-  %   gridding    : 7 create_BMB_gD  8 create_BMB_gD_4km
-  %                 9 create_BMB_gD_OceanModelling  10 create_BMB_gD_ObsData
-  %   gamma_0     : 11 save_gamma0_local  (run AFTER run_parameter_selection.py)
+  %   dT tuning   : 4 get_dT_max_BMB   (dT=+2, diagnostic CSVs)
+  %                 5 get_dT_min_BMB   (dT=-2, diagnostic CSVs)
+  %                 6 get_dT_zero_BMB  (dT=0,  in-range CSVs)
+  %                 7 get_dT_iterate_BMB        (secant iteration, waitonlock SSH)
+  %                 8 get_dT_iterate_BMB_direct (same but polls lock file directly;
+  %                                              use when running MATLAB on Gadi)
+  %   melt runs   : 8 melt_run  9 melt_run_OceanModelling  10 melt_run_ObsData
+  %   gridding    : 11 create_BMB_gD  12 create_BMB_gD_4km
+  %                 13 create_BMB_gD_OceanModelling  14 create_BMB_gD_ObsData
+  %   gamma_0     : 15 save_gamma0_local  (run AFTER run_parameter_selection.py)
   % The tf cell arrays are size [1,1,numel(tf_depths)] (3rd dim = DEPTH);
   % each tf{i} = [tf_at_vertices ; t] with t the (single) time row.
   % =====================================================================
@@ -168,6 +174,562 @@ function md=meltMIp(steps,j,loadonly)
     end% }}}
 
     %% ---------------------------------------------------------------
+    %% dT correction tuning  (steps 4–7, run once at any j value)
+    %% ---------------------------------------------------------------
+    if perform(org, 'get_dT_max_BMB')  % {{{
+        % Single-timestep ISSM solve at dT = +2°C for all basins with the
+        % fixed observational gamma0.  BasalforcingsFloatingiceMeltingRate
+        % output is used in step 5 to back-calculate the effective base TF
+        % at each element so that per-basin dT can be found analytically
+        % (no further ISSM solves needed).
+        gamma0_tune = 1.2409e+04;   % m/yr/°C²  (fixed for observational tuning)
+
+        md = loadmodel(inputmodel_relax);
+        m  = ((1+sin(71*pi/180))*ones(md.mesh.numberofvertices,1) ...
+              ./(1+sin(abs(md.mesh.lat)*pi/180)));
+        md.mesh.scale_factor = (1./m).^2;
+
+        load './../preprocessed_data/Ocean/Basins/Imbie2_extrap_2km_BasinOnElements.mat';
+        load './../preprocessed_data/Ocean/tf_depths.mat';
+        load('./../preprocessed_data/Ocean/Clim/Clim_obs_TF.mat');
+
+        unique_basinid = unique(basinid);
+        nBasins        = length(unique_basinid);
+
+        md.transient.ismasstransport    = 1;
+        md.transient.isstressbalance    = 0;
+        md.inversion.iscontrol          = 0;
+        md.transient.isgroundingline    = 0;
+        md.masstransport.spcthickness   = NaN * ones(md.mesh.numberofvertices, 1);
+        md.outputdefinition.definitions = {};
+        md.timestepping.interp_forcing  = 0;
+        md.transient.isthermal          = 0;
+        md.transient.issmb              = 0;
+        md.timestepping.final_time      = 1;
+        md.timestepping.time_step       = 1;
+        md.settings.output_frequency    = 1;
+        md.transient.requested_outputs  = {'default', 'BasalforcingsFloatingiceMeltingRate'};
+
+        md.basalforcings             = basalforcingsismip6(md.basalforcings);
+        md.basalforcings.basin_id    = basinid;
+        md.basalforcings.num_basins  = nBasins;
+        md.basalforcings.tf_depths   = tf_depths;
+        md.basalforcings.tf          = clim_obs_tf;
+        md.basalforcings.islocal     = 1;
+        md.basalforcings.delta_t     = 2 * ones(1, nBasins);   % maximum warming
+        md.basalforcings.gamma_0     = gamma0_tune;
+
+        md.miscellaneous.name = 'dT_tune_max';
+        cluster = set_cluster('gadi');
+        md.cluster = cluster;
+        md.settings.waitonlock = 0;
+        md.verbose = verbose('solution', true, 'module', true, 'convergence', false);
+        md = solve(md, 'tr', 'runtimename', false, 'loadonly', loadonly);
+        if loadonly
+            save('Models/AIS_ISMIP7_dT_tune_max', 'md', '-v7.3');
+
+            % --- basin-mean melt at dT = +2 ----------------------------------
+            melt_v_dT2 = md.results.TransientSolution(end).BasalforcingsFloatingiceMeltingRate;
+            [melt_basin, unique_basins_out, total_bmb_Gtyr] = calc_basin_mean_melt( ...
+                melt_v_dT2, md, basinid, md.materials.rho_ice);
+
+            % --- observational targets (Paolo / Adusumilli) ------------------
+            csv_path    = ['./../raw_data/ISMIP7/AIS/parameterisations/ocean/meltobs/' ...
+                           'Melt_Paolo_Err_Adusumilli_imbie2_v3.csv'];
+            T_csv       = readmatrix(csv_path, 'NumHeaderLines', 1);
+            target_mean     = zeros(nBasins, 1);
+            target_err      = zeros(nBasins, 1);
+            target_total    = zeros(nBasins, 1);   % BMR [Gt/yr]
+            target_total_err= zeros(nBasins, 1);   % BMR_uncert [Gt/yr]
+            for i = 1:size(T_csv, 1)
+                b_matlab = T_csv(i,1) + 1;   % CSV 0-based → MATLAB 1-based
+                if b_matlab >= 1 && b_matlab <= nBasins
+                    target_mean(b_matlab)      = T_csv(i, 5);   % AvgBMR [kg/m2/a]
+                    target_err(b_matlab)       = T_csv(i, 6);   % AvgBMR_uncert [kg/m2/a]
+                    target_total(b_matlab)     = T_csv(i, 2);   % BMR [Gt/yr]
+                    target_total_err(b_matlab) = T_csv(i, 4);   % BMR_uncert [Gt/yr]
+                end
+            end
+
+            % --- flag: 1 if melt >= target_mean - target_err ----------------
+            above_min_target = double(melt_basin >= (target_mean - target_err));
+
+            % --- table 1: area-averaged rates [kg m-2 a-1] ------------------
+            csv_out = [directory '/dT_max_melt_diagnostic.csv'];
+            fid = fopen(csv_out, 'w');
+            fprintf(fid, 'basin,dT,melt_model_kgm2a,obs_min_target_kgm2a,above_min_target\n');
+            for b = 1:nBasins
+                fprintf(fid, '%d,%.4f,%.4f,%.4f,%d\n', ...
+                        unique_basins_out(b) - 1, ...
+                        2.0, melt_basin(b), target_mean(b) - target_err(b), above_min_target(b));
+            end
+            fclose(fid);
+            fprintf('Saved: %s\n', csv_out);
+
+            % --- table 2: total BMB [Gt yr-1] --------------------------------
+            obs_min_total   = target_total - target_total_err;
+            above_min_total = double(total_bmb_Gtyr >= obs_min_total);
+
+            csv_out2 = [directory '/dT_max_total_bmb_diagnostic.csv'];
+            fid = fopen(csv_out2, 'w');
+            fprintf(fid, 'basin,dT,total_model_bmb_Gtyr,obs_min_total_Gtyr,above_min_total\n');
+            for b = 1:nBasins
+                fprintf(fid, '%d,%.4f,%.4f,%.4f,%d\n', ...
+                        unique_basins_out(b) - 1, ...
+                        2.0, total_bmb_Gtyr(b), obs_min_total(b), above_min_total(b));
+            end
+            fclose(fid);
+            fprintf('Saved: %s\n', csv_out2);
+        end
+    end  % }}}
+
+    if perform(org, 'get_dT_min_BMB')  % {{{
+        % Single-timestep ISSM solve at dT = -2°C for all basins.
+        % Symmetric counterpart to get_dT_max_BMB: establishes the lower-bound
+        % melt map.  Basins where melt(-2) > target_mean + target_err are
+        % flagged 0 (too warm to be corrected into the observational range).
+        gamma0_tune = 1.2409e+04;   % m/yr/°C²  (must match get_dT_max_BMB)
+
+        md = loadmodel(inputmodel_relax);
+        m  = ((1+sin(71*pi/180))*ones(md.mesh.numberofvertices,1) ...
+              ./(1+sin(abs(md.mesh.lat)*pi/180)));
+        md.mesh.scale_factor = (1./m).^2;
+
+        load './../preprocessed_data/Ocean/Basins/Imbie2_extrap_2km_BasinOnElements.mat';
+        load './../preprocessed_data/Ocean/tf_depths.mat';
+        load('./../preprocessed_data/Ocean/Clim/Clim_obs_TF.mat');
+
+        unique_basinid = unique(basinid);
+        nBasins        = length(unique_basinid);
+
+        md.transient.ismasstransport    = 1;
+        md.transient.isstressbalance    = 0;
+        md.inversion.iscontrol          = 0;
+        md.transient.isgroundingline    = 0;
+        md.masstransport.spcthickness   = NaN * ones(md.mesh.numberofvertices, 1);
+        md.outputdefinition.definitions = {};
+        md.timestepping.interp_forcing  = 0;
+        md.transient.isthermal          = 0;
+        md.transient.issmb              = 0;
+        md.timestepping.final_time      = 1;
+        md.timestepping.time_step       = 1;
+        md.settings.output_frequency    = 1;
+        md.transient.requested_outputs  = {'default', 'BasalforcingsFloatingiceMeltingRate'};
+
+        md.basalforcings             = basalforcingsismip6(md.basalforcings);
+        md.basalforcings.basin_id    = basinid;
+        md.basalforcings.num_basins  = nBasins;
+        md.basalforcings.tf_depths   = tf_depths;
+        md.basalforcings.tf          = clim_obs_tf;
+        md.basalforcings.islocal     = 1;
+        md.basalforcings.delta_t     = -2 * ones(1, nBasins);  % maximum cooling
+        md.basalforcings.gamma_0     = gamma0_tune;
+
+        md.miscellaneous.name = 'dT_tune_min';
+        cluster = set_cluster('gadi');
+        md.cluster = cluster;
+        md.settings.waitonlock = 0;
+        md.verbose = verbose('solution', true, 'module', true, 'convergence', false);
+        md = solve(md, 'tr', 'runtimename', false, 'loadonly', loadonly);
+        if loadonly
+            save('Models/AIS_ISMIP7_dT_tune_min', 'md', '-v7.3');
+
+            % --- basin-mean and total melt at dT = -2 ------------------------
+            melt_v_dTm2 = md.results.TransientSolution(end).BasalforcingsFloatingiceMeltingRate;
+            [melt_basin, unique_basins_out, total_bmb_Gtyr] = calc_basin_mean_melt( ...
+                melt_v_dTm2, md, basinid, md.materials.rho_ice);
+
+            % --- observational targets (Paolo / Adusumilli) ------------------
+            csv_path       = ['./../raw_data/ISMIP7/AIS/parameterisations/ocean/meltobs/' ...
+                              'Melt_Paolo_Err_Adusumilli_imbie2_v3.csv'];
+            T_csv          = readmatrix(csv_path, 'NumHeaderLines', 1);
+            target_mean    = zeros(nBasins, 1);
+            target_err     = zeros(nBasins, 1);
+            target_total   = zeros(nBasins, 1);   % BMR [Gt/yr]
+            target_total_err = zeros(nBasins, 1); % BMR_uncert [Gt/yr]
+            for i = 1:size(T_csv, 1)
+                b_matlab = T_csv(i,1) + 1;   % CSV 0-based → MATLAB 1-based
+                if b_matlab >= 1 && b_matlab <= nBasins
+                    target_mean(b_matlab)      = T_csv(i, 5);   % AvgBMR [kg/m2/a]
+                    target_err(b_matlab)       = T_csv(i, 6);   % AvgBMR_uncert [kg/m2/a]
+                    target_total(b_matlab)     = T_csv(i, 2);   % BMR [Gt/yr]
+                    target_total_err(b_matlab) = T_csv(i, 4);   % BMR_uncert [Gt/yr]
+                end
+            end
+
+            % --- table 1: area-averaged rates [kg m-2 a-1] ------------------
+            below_max_target = double(melt_basin <= (target_mean + target_err));
+
+            csv_out = [directory '/dT_min_melt_diagnostic.csv'];
+            fid = fopen(csv_out, 'w');
+            fprintf(fid, 'basin,dT,melt_model_kgm2a,obs_max_target_kgm2a,below_max_target\n');
+            for b = 1:nBasins
+                fprintf(fid, '%d,%.4f,%.4f,%.4f,%d\n', ...
+                        unique_basins_out(b) - 1, ...
+                        -2.0, melt_basin(b), target_mean(b) + target_err(b), below_max_target(b));
+            end
+            fclose(fid);
+            fprintf('Saved: %s\n', csv_out);
+
+            % --- table 2: total BMB [Gt yr-1] --------------------------------
+            obs_max_total   = target_total + target_total_err;
+            below_max_total = double(total_bmb_Gtyr <= obs_max_total);
+
+            csv_out2 = [directory '/dT_min_total_bmb_diagnostic.csv'];
+            fid = fopen(csv_out2, 'w');
+            fprintf(fid, 'basin,dT,total_model_bmb_Gtyr,obs_max_total_Gtyr,below_max_total\n');
+            for b = 1:nBasins
+                fprintf(fid, '%d,%.4f,%.4f,%.4f,%d\n', ...
+                        unique_basins_out(b) - 1, ...
+                        -2.0, total_bmb_Gtyr(b), obs_max_total(b), below_max_total(b));
+            end
+            fclose(fid);
+            fprintf('Saved: %s\n', csv_out2);
+        end
+    end  % }}}
+
+    if perform(org, 'get_dT_zero_BMB')  % {{{
+        % Single-timestep ISSM solve at dT = 0 (no temperature correction).
+        % Checks whether the uncorrected climatological TF already places the
+        % modelled melt within the observational uncertainty range for each basin.
+        % Flag = 1 if model value falls in [target - uncert, target + uncert].
+        gamma0_tune = 1.2409e+04;   % m/yr/°C²  (must match get_dT_max_BMB)
+
+        md = loadmodel(inputmodel_relax);
+        m  = ((1+sin(71*pi/180))*ones(md.mesh.numberofvertices,1) ...
+              ./(1+sin(abs(md.mesh.lat)*pi/180)));
+        md.mesh.scale_factor = (1./m).^2;
+
+        load './../preprocessed_data/Ocean/Basins/Imbie2_extrap_2km_BasinOnElements.mat';
+        load './../preprocessed_data/Ocean/tf_depths.mat';
+        load('./../preprocessed_data/Ocean/Clim/Clim_obs_TF.mat');
+
+        unique_basinid = unique(basinid);
+        nBasins        = length(unique_basinid);
+
+        md.transient.ismasstransport    = 1;
+        md.transient.isstressbalance    = 0;
+        md.inversion.iscontrol          = 0;
+        md.transient.isgroundingline    = 0;
+        md.masstransport.spcthickness   = NaN * ones(md.mesh.numberofvertices, 1);
+        md.outputdefinition.definitions = {};
+        md.timestepping.interp_forcing  = 0;
+        md.transient.isthermal          = 0;
+        md.transient.issmb              = 0;
+        md.timestepping.final_time      = 1;
+        md.timestepping.time_step       = 1;
+        md.settings.output_frequency    = 1;
+        md.transient.requested_outputs  = {'default', 'BasalforcingsFloatingiceMeltingRate'};
+
+        md.basalforcings             = basalforcingsismip6(md.basalforcings);
+        md.basalforcings.basin_id    = basinid;
+        md.basalforcings.num_basins  = nBasins;
+        md.basalforcings.tf_depths   = tf_depths;
+        md.basalforcings.tf          = clim_obs_tf;
+        md.basalforcings.islocal     = 1;
+        md.basalforcings.delta_t     = zeros(1, nBasins);   % no correction
+        md.basalforcings.gamma_0     = gamma0_tune;
+
+        md.miscellaneous.name = 'dT_tune_zero';
+        cluster = set_cluster('gadi');
+        md.cluster = cluster;
+        md.settings.waitonlock = 0;
+        md.verbose = verbose('solution', true, 'module', true, 'convergence', false);
+        md = solve(md, 'tr', 'runtimename', false, 'loadonly', loadonly);
+        if loadonly
+            save('Models/AIS_ISMIP7_dT_tune_zero', 'md', '-v7.3');
+
+            % --- basin-mean and total melt at dT = 0 -------------------------
+            melt_v_dT0 = md.results.TransientSolution(end).BasalforcingsFloatingiceMeltingRate;
+            [melt_basin, unique_basins_out, total_bmb_Gtyr] = calc_basin_mean_melt( ...
+                melt_v_dT0, md, basinid, md.materials.rho_ice);
+
+            % --- observational targets (Paolo / Adusumilli) ------------------
+            csv_path       = ['./../raw_data/ISMIP7/AIS/parameterisations/ocean/meltobs/' ...
+                              'Melt_Paolo_Err_Adusumilli_imbie2_v3.csv'];
+            T_csv          = readmatrix(csv_path, 'NumHeaderLines', 1);
+            target_mean    = zeros(nBasins, 1);
+            target_err     = zeros(nBasins, 1);
+            target_total   = zeros(nBasins, 1);
+            target_total_err = zeros(nBasins, 1);
+            for i = 1:size(T_csv, 1)
+                b_matlab = T_csv(i,1) + 1;
+                if b_matlab >= 1 && b_matlab <= nBasins
+                    target_mean(b_matlab)      = T_csv(i, 5);   % AvgBMR [kg/m2/a]
+                    target_err(b_matlab)       = T_csv(i, 6);   % AvgBMR_uncert [kg/m2/a]
+                    target_total(b_matlab)     = T_csv(i, 2);   % BMR [Gt/yr]
+                    target_total_err(b_matlab) = T_csv(i, 4);   % BMR_uncert [Gt/yr]
+                end
+            end
+
+            % --- table 1: area-averaged rates [kg m-2 a-1] ------------------
+            % flag = 1 if model is within [target - uncert, target + uncert]
+            in_range_mean = double( ...
+                melt_basin >= (target_mean - target_err) & ...
+                melt_basin <= (target_mean + target_err));
+
+            csv_out = [directory '/dT_zero_melt_diagnostic.csv'];
+            fid = fopen(csv_out, 'w');
+            fprintf(fid, 'basin,dT,melt_model_kgm2a,obs_mean_kgm2a,obs_uncert_kgm2a,in_obs_range\n');
+            for b = 1:nBasins
+                fprintf(fid, '%d,%.4f,%.4f,%.4f,%.4f,%d\n', ...
+                        unique_basins_out(b) - 1, ...
+                        0.0, melt_basin(b), target_mean(b), target_err(b), in_range_mean(b));
+            end
+            fclose(fid);
+            fprintf('Saved: %s\n', csv_out);
+
+            % --- table 2: total BMB [Gt yr-1] --------------------------------
+            % flag = 1 if model is within [target_total - uncert, target_total + uncert]
+            in_range_total = double( ...
+                total_bmb_Gtyr >= (target_total - target_total_err) & ...
+                total_bmb_Gtyr <= (target_total + target_total_err));
+
+            csv_out2 = [directory '/dT_zero_total_bmb_diagnostic.csv'];
+            fid = fopen(csv_out2, 'w');
+            fprintf(fid, 'basin,dT,total_model_bmb_Gtyr,obs_total_Gtyr,obs_uncert_Gtyr,in_obs_range\n');
+            for b = 1:nBasins
+                fprintf(fid, '%d,%.4f,%.4f,%.4f,%.4f,%d\n', ...
+                        unique_basins_out(b) - 1, ...
+                        0.0, total_bmb_Gtyr(b), target_total(b), target_total_err(b), in_range_total(b));
+            end
+            fclose(fid);
+            fprintf('Saved: %s\n', csv_out2);
+        end
+    end  % }}}
+
+    if perform(org, 'get_dT_inital_slopes')  % {{{
+        % Iterative secant-method dT tuning using actual ISSM evaluations.
+        % Target metric: total BMB [Gt yr-1] per basin (Paolo/Adusumilli).
+        %
+        % iter_0 (no ISSM run): linear estimate from dT=+2 and dT=0 pre-runs.
+        %   slope   = (Mtot_0 - Mtot_2) / (0 - 2)          [Gt/yr per °C]
+        %   M_diff  = Mtarget - Mtot_2
+        %   dT_new  = 2 + M_diff / slope
+        %
+        % iter 1…n_iter: run ISSM with dT_used = dT_new from previous step
+        %   (waitonlock=1 → blocks until PBS job returns).
+        %   slope updated from anchor (0, Mtot_0) and current (dT_used, Mtot_j).
+        %   If |M_diff_j| not improving vs previous: freeze dT (keep dT_used).
+        %   dT clamped to [-2, +2] every iteration.
+        %
+        % Saves: ./../preprocessed_data/Ocean/dT_correction.mat
+        %   fields: dT_correction (1×nBasins), in_range, unique_basinid
+
+        gamma0_tune = 1.2409e+04;    % m/yr/°C²  (must match get_dT_max_BMB)
+
+        load './../preprocessed_data/Ocean/Basins/Imbie2_extrap_2km_BasinOnElements.mat';
+        load './../preprocessed_data/Ocean/tf_depths.mat';
+        load('./../preprocessed_data/Ocean/Clim/Clim_obs_TF.mat');
+
+        % Load pre-computed ISSM results from steps 4 and 6
+        md_dT2 = loadmodel('Models/AIS_ISMIP7_dT_tune_max');
+        md_dT0 = loadmodel('Models/AIS_ISMIP7_dT_tune_zero');
+
+        unique_basinid = unique(basinid);
+        nBasins        = length(unique_basinid);
+        rho_ice        = md_dT2.materials.rho_ice;
+
+        melt_v_dT2 = md_dT2.results.TransientSolution(end).BasalforcingsFloatingiceMeltingRate;
+        melt_v_dT0 = md_dT0.results.TransientSolution(end).BasalforcingsFloatingiceMeltingRate;
+        [~, unique_basins_out, Mtot_2] = calc_basin_mean_melt(melt_v_dT2, md_dT2, basinid, rho_ice);
+        [~, ~,                 Mtot_0] = calc_basin_mean_melt(melt_v_dT0, md_dT0, basinid, rho_ice);
+
+        % --- observational targets [Gt yr-1] ---------------------------------
+        csv_path = ['./../raw_data/ISMIP7/AIS/parameterisations/ocean/meltobs/' ...
+                    'Melt_Paolo_Err_Adusumilli_imbie2_v3.csv'];
+        T_csv    = readmatrix(csv_path, 'NumHeaderLines', 1);
+        Mtarget  = zeros(nBasins, 1);
+        Muncert  = zeros(nBasins, 1);
+        for i = 1:size(T_csv, 1)
+            b_matlab = T_csv(i,1) + 1;   % CSV 0-based → MATLAB 1-based
+            if b_matlab >= 1 && b_matlab <= nBasins
+                Mtarget(b_matlab) = T_csv(i, 2);   % BMR [Gt/yr]
+                Muncert(b_matlab) = T_csv(i, 4);   % BMR_uncert [Gt/yr]
+            end
+        end
+
+        % --- iter_0: initial dT from linear interpolation (no ISSM run) ------
+        dT_ref   = 2.0;
+        slope_0  = zeros(nBasins, 1);
+        M_diff_0 = Mtarget - Mtot_2;
+        dT_new   = zeros(nBasins, 1);
+        for b = 1:nBasins
+            dTdiff     = 0 - dT_ref;           % = -2
+            Mdiff_runs = Mtot_0(b) - Mtot_2(b);
+            if abs(dTdiff) > 1e-10 && abs(Mdiff_runs) > 1e-10
+                slope_0(b) = Mdiff_runs / dTdiff;             % Gt/yr per °C
+                dT_new(b)  = dT_ref + M_diff_0(b) / slope_0(b);
+            else
+                slope_0(b) = NaN;
+                dT_new(b)  = dT_ref;
+            end
+            dT_new(b) = max(-2, min(2, dT_new(b)));
+        end
+        in_range_0 = double(abs(M_diff_0) <= Muncert);
+
+        csv_iter0 = [directory '/dT_iterate_iter_0.csv'];
+        fid = fopen(csv_iter0, 'w');
+        fprintf(fid, 'basin,dT_ref,Mtot_ref_Gtyr,Mtot_zero_Gtyr,Mtarget_Gtyr,obs_uncert_Gtyr,M_diff_Gtyr,slope_Gtyr_degC,in_obs_range,dT_new\n');
+        for b = 1:nBasins
+            fprintf(fid, '%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%d,%.6f\n', ...
+                    unique_basins_out(b) - 1, dT_ref, Mtot_2(b), Mtot_0(b), ...
+                    Mtarget(b), Muncert(b), M_diff_0(b), slope_0(b), in_range_0(b), dT_new(b));
+        end
+        fclose(fid);
+        fprintf('Saved: %s\n', csv_iter0);
+
+    end  % }}}
+    if perform(org, 'get_dT_iterate_BMB_j')  % {{{
+        % Iterative secant-method dT tuning using actual ISSM evaluations.
+        % Target metric: total BMB [Gt yr-1] per basin (Paolo/Adusumilli).
+        %
+        % iter_0 (no ISSM run): linear estimate from dT=+2 and dT=0 pre-runs.
+        %   slope   = (Mtot_0 - Mtot_2) / (0 - 2)          [Gt/yr per °C]
+        %   M_diff  = Mtarget - Mtot_2
+        %   dT_new  = 2 + M_diff / slope
+        %
+        % iter 1…n_iter: run ISSM with dT_used = dT_new from previous step
+        %   (waitonlock=1 → blocks until PBS job returns).
+        %   slope updated from anchor (0, Mtot_0) and current (dT_used, Mtot_j).
+        %   If |M_diff_j| not improving vs previous: freeze dT (keep dT_used).
+        %   dT clamped to [-2, +2] every iteration.
+        %
+        % Saves: ./../preprocessed_data/Ocean/dT_correction.mat
+        %   fields: dT_correction (1×nBasins), in_range, unique_basinid
+
+        n_iter      = j;              % number of ISSM iterations (change as needed)
+        gamma0_tune = 1.2409e+04;    % m/yr/°C²  (must match get_dT_max_BMB)
+
+        load './../preprocessed_data/Ocean/Basins/Imbie2_extrap_2km_BasinOnElements.mat';
+        load './../preprocessed_data/Ocean/tf_depths.mat';
+        load('./../preprocessed_data/Ocean/Clim/Clim_obs_TF.mat');
+
+        % Load pre-computed ISSM results from steps 4 and 6
+
+        unique_basinid = unique(basinid);
+        nBasins        = length(unique_basinid);
+
+
+        % --- observational targets [Gt yr-1] ---------------------------------
+        csv_path = ['./../raw_data/ISMIP7/AIS/parameterisations/ocean/meltobs/' ...
+                    'Melt_Paolo_Err_Adusumilli_imbie2_v3.csv'];
+        T_csv    = readmatrix(csv_path, 'NumHeaderLines', 1);
+        Mtarget  = zeros(nBasins, 1);
+        Muncert  = zeros(nBasins, 1);
+        for i = 1:size(T_csv, 1)
+            b_matlab = T_csv(i,1) + 1;   % CSV 0-based → MATLAB 1-based
+            if b_matlab >= 1 && b_matlab <= nBasins
+                Mtarget(b_matlab) = T_csv(i, 2);   % BMR [Gt/yr]
+                Muncert(b_matlab) = T_csv(i, 4);   % BMR_uncert [Gt/yr]
+            end
+        end
+
+
+        csv_iter_jbefore = [directory '/dT_iterate_iter_' num2str(j-1) '.csv'];
+        n = readtable(csv_iter_jbefore);
+        % Always load iter_0 for the dT=0 anchor (Mtot_zero_Gtyr)
+        n0 = readtable([directory '/dT_iterate_iter_0.csv']);
+        % --- iteration loop --------------------------------------------------
+
+        fprintf('\n--- dT iterate: iteration j=%d ---\n', j);
+
+
+        % Load fresh model and configure
+        md = loadmodel(inputmodel_relax);
+        mm = ((1+sin(71*pi/180))*ones(md.mesh.numberofvertices,1) ...
+              ./(1+sin(abs(md.mesh.lat)*pi/180)));
+        md.mesh.scale_factor = (1./mm).^2;
+
+        md.transient.ismasstransport    = 1;
+        md.transient.isstressbalance    = 0;
+        md.inversion.iscontrol          = 0;
+        md.transient.isgroundingline    = 0;
+        md.masstransport.spcthickness   = NaN * ones(md.mesh.numberofvertices, 1);
+        md.outputdefinition.definitions = {};
+        md.timestepping.interp_forcing  = 0;
+        md.transient.isthermal          = 0;
+        md.transient.issmb              = 0;
+        md.timestepping.final_time      = 1;
+        md.timestepping.time_step       = 1;
+        md.settings.output_frequency    = 1;
+        md.transient.requested_outputs  = {'default', 'BasalforcingsFloatingiceMeltingRate'};
+
+        md.basalforcings             = basalforcingsismip6(md.basalforcings);
+        md.basalforcings.basin_id    = basinid;
+        md.basalforcings.num_basins  = nBasins;
+        md.basalforcings.tf_depths   = tf_depths;
+        md.basalforcings.tf          = clim_obs_tf;
+        md.basalforcings.islocal     = 1;
+        md.basalforcings.delta_t     = n.dT_new';   % 1 × nBasins
+        md.basalforcings.gamma_0     = gamma0_tune;
+
+        md.miscellaneous.name = ['dT_tune_iter_' num2str(j)];
+        cluster = set_cluster('gadi');
+        md.cluster = cluster;
+        md.settings.waitonlock =0;   % wait up to 2 h for PBS job
+        md.verbose = verbose('solution', true, 'module', true, 'convergence', true);
+        md = solve(md, 'tr', 'runtimename', false,'loadonly',loadonly);
+        if loadonly,
+
+            save(['Models/AIS_ISMIP7_dT_tune_iter_' num2str(j)], 'md', '-v7.3');
+
+            rho_ice        = md.materials.rho_ice;
+            % Compute basin totals from this run
+            melt_v_iter = md.results.TransientSolution(end).BasalforcingsFloatingiceMeltingRate;
+            [~, unique_basins_out, Mtot_iter] = calc_basin_mean_melt( ...
+                melt_v_iter, md, basinid, rho_ice);
+
+            % Per-basin update
+            dT_new_iter  = zeros(nBasins, 1);
+            slope_iter   = zeros(nBasins, 1);
+            M_diff_iter  = Mtarget - Mtot_iter;
+            in_range_iter = double(abs(M_diff_iter) <= Muncert);
+% improving     = double(abs(M_diff_iter) < abs(M_diff_prev));
+
+            for b = 1:nBasins
+                % Slope from anchor (dT=0, Mtot_0) to current (dT_used, Mtot_iter)
+                dTdiff_j = 0 - n.dT_new(b);
+                Mdiff_j  = n0.Mtot_zero_Gtyr(b) - Mtot_iter(b);
+                if abs(dTdiff_j) > 1e-10 && abs(Mdiff_j) > 1e-10
+                    slope_iter(b) = Mdiff_j / dTdiff_j;
+                else
+                    slope_iter(b) = NaN;
+                end
+
+                if ~isnan(slope_iter(b)) && abs(slope_iter(b)) > 1e-10
+                    dT_new_iter(b) = n.dT_new(b) + M_diff_iter(b) / slope_iter(b);
+                else
+                    dT_new_iter(b) = n.dT_new(b);
+                end
+                dT_new_iter(b) = max(-2, min(2, dT_new_iter(b)));
+            end
+
+            csv_iter_j = [directory '/dT_iterate_iter_' num2str(j) '.csv'];
+            fid = fopen(csv_iter_j, 'w');
+% fprintf(fid, 'basin,dT_used,total_model_bmb_Gtyr,Mtarget_Gtyr,obs_uncert_Gtyr,M_diff_Gtyr,slope_Gtyr_degC,in_obs_range,improving,dT_new\n');
+            fprintf(fid, 'basin,dT_used,total_model_bmb_Gtyr,Mtarget_Gtyr,obs_uncert_Gtyr,M_diff_Gtyr,slope_Gtyr_degC,in_obs_range,dT_new\n');
+            for b = 1:nBasins
+                fprintf(fid, '%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%d,%.6f\n', ...
+                        unique_basins_out(b) - 1, n.dT_new(b), Mtot_iter(b), ...
+                        Mtarget(b), Muncert(b), M_diff_iter(b), slope_iter(b), ...
+                        in_range_iter(b), dT_new_iter(b));
+            end
+            fclose(fid);
+            fprintf('Saved: %s\n', csv_iter_j);
+
+            % --- save final dT correction ----------------------------------------
+            dT_correction = n.dT_new(:)';          % 1 × nBasins
+            save('./../preprocessed_data/Ocean/dT_correction.mat', ...
+                 'dT_correction',  'unique_basinid', '-v7.3');
+            fprintf('\nSaved dT_correction.mat (after %d iterations)\n', n_iter);
+        end
+
+    end  % }}}
+
+
+
+    %% ---------------------------------------------------------------
     %% Melt runs
     %% ---------------------------------------------------------------
     if perform(org,'melt_run')% {{{
@@ -200,7 +762,8 @@ function md=meltMIp(steps,j,loadonly)
          %Set ISMIP6 basal melt rate parameters
         gamma0_median = K_data(j)/gT_to_K;
         unique_basinid = unique(basinid);
-        delta_t = 0 * ones(1, length(unique_basinid)); %no correction in dT
+        tmp = load('./../preprocessed_data/Ocean/dT_correction.mat', 'dT_correction');
+        delta_t = tmp.dT_correction;   % 1 × nBasins
 
         md.basalforcings            = basalforcingsismip6(md.basalforcings);
         md.basalforcings.basin_id   = basinid;
@@ -265,7 +828,8 @@ function md=meltMIp(steps,j,loadonly)
             %Set ISMIP6 basal melt rate parameters
             gamma0_median = K_data(j)/gT_to_K;
             unique_basinid = unique(basinid);
-            delta_t = 0 * ones(1, length(unique_basinid)); %no correction in dT
+            tmp = load('./../preprocessed_data/Ocean/dT_correction.mat', 'dT_correction');
+            delta_t = tmp.dT_correction;   % 1 × nBasins
 
             md.basalforcings            = basalforcingsismip6(md.basalforcings);
             md.basalforcings.basin_id   = basinid;
@@ -324,7 +888,8 @@ function md=meltMIp(steps,j,loadonly)
             %Set ISMIP6 basal melt rate parameters
             gamma0_median = K_data(j)/gT_to_K;
             unique_basinid = unique(basinid);
-            delta_t = 0 * ones(1, length(unique_basinid)); %no correction in dT
+            tmp = load('./../preprocessed_data/Ocean/dT_correction.mat', 'dT_correction');
+            delta_t = tmp.dT_correction;   % 1 × nBasins
 
             md.basalforcings            = basalforcingsismip6(md.basalforcings);
             md.basalforcings.basin_id   = basinid;
