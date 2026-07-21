@@ -26,6 +26,8 @@ function md=meltMIp(steps,j,loadonly)
   basin_shelf_mask = './../Data/Ocean/basinid_iceshelf_extrap_davision_interpnearest.mat';
   inputmodel_relax = './Models/AIS_ISMIP7_Relaxed.mat';
   path_dir = '/g/data/au88/jb1863/SAEF/ISMIP7_ISSM_Monash/init/./../scripts '
+  melt_obs_csv=['./../raw_data/ISMIP7/AIS/parameterisations/ocean/meltobs/' ...
+                           'Melt_Paolo_Davison_Adusumilli_imbie2.csv'];
   directory = 'Data/Tables';
   K_data = 0.25e-5 : 0.25e-5 : 3.0e-4;
   sin_alpha=0.0029; %np.arscin(2.9e-3);
@@ -47,7 +49,7 @@ function md=meltMIp(steps,j,loadonly)
   %                 7 get_dT_iterate_BMB        (secant iteration, waitonlock SSH)
   %                 8 get_dT_iterate_BMB_direct (same but polls lock file directly;
   %                                              use when running MATLAB on Gadi)
-  %   melt runs   : 8 melt_run  9 melt_run_OceanModelling  10 melt_run_ObsData
+  %   melt runs   : 9 melt_run  10 melt_run_OceanModelling  10 melt_run_ObsData
   %   gridding    : 11 create_BMB_gD  12 create_BMB_gD_4km
   %                 13 create_BMB_gD_OceanModelling  14 create_BMB_gD_ObsData
   %   gamma_0     : 15 save_gamma0_local  (run AFTER run_parameter_selection.py)
@@ -174,7 +176,7 @@ function md=meltMIp(steps,j,loadonly)
     end% }}}
 
     %% ---------------------------------------------------------------
-    %% dT correction tuning  (steps 4–7, run once at any j value)
+    %% dT correction tuning  (steps 4–6\, run once at any j value)
     %% ---------------------------------------------------------------
     if perform(org, 'get_dT_max_BMB')  % {{{
         % Single-timestep ISSM solve at dT = +2°C for all basins with the
@@ -233,40 +235,21 @@ function md=meltMIp(steps,j,loadonly)
             [melt_basin, unique_basins_out, total_bmb_Gtyr] = calc_basin_mean_melt( ...
                 melt_v_dT2, md, basinid, md.materials.rho_ice);
 
-            % --- observational targets (Paolo / Adusumilli) ------------------
-            csv_path    = ['./../raw_data/ISMIP7/AIS/parameterisations/ocean/meltobs/' ...
-                           'Melt_Paolo_Err_Adusumilli_imbie2_v3.csv'];
-            T_csv       = readmatrix(csv_path, 'NumHeaderLines', 1);
-            target_mean     = zeros(nBasins, 1);
-            target_err      = zeros(nBasins, 1);
+            % --- observational targets (Paolo / Adusumilli), total BMB only --
+            % melt_obs_csv now has 3 columns: basin, BMR (Gt/yr), BMR uncert (Gt/yr)
+            % (no AvgBMR columns; area-averaged-rate target no longer used for K selection)
+            T_csv       = readmatrix(melt_obs_csv, 'NumHeaderLines', 1);
             target_total    = zeros(nBasins, 1);   % BMR [Gt/yr]
-            target_total_err= zeros(nBasins, 1);   % BMR_uncert [Gt/yr]
+            target_total_err= zeros(nBasins, 1);   % BMR uncert [Gt/yr]
             for i = 1:size(T_csv, 1)
                 b_matlab = T_csv(i,1) + 1;   % CSV 0-based → MATLAB 1-based
                 if b_matlab >= 1 && b_matlab <= nBasins
-                    target_mean(b_matlab)      = T_csv(i, 5);   % AvgBMR [kg/m2/a]
-                    target_err(b_matlab)       = T_csv(i, 6);   % AvgBMR_uncert [kg/m2/a]
                     target_total(b_matlab)     = T_csv(i, 2);   % BMR [Gt/yr]
-                    target_total_err(b_matlab) = T_csv(i, 4);   % BMR_uncert [Gt/yr]
+                    target_total_err(b_matlab) = T_csv(i, 3);   % BMR uncert [Gt/yr]
                 end
             end
 
-            % --- flag: 1 if melt >= target_mean - target_err ----------------
-            above_min_target = double(melt_basin >= (target_mean - target_err));
-
-            % --- table 1: area-averaged rates [kg m-2 a-1] ------------------
-            csv_out = [directory '/dT_max_melt_diagnostic.csv'];
-            fid = fopen(csv_out, 'w');
-            fprintf(fid, 'basin,dT,melt_model_kgm2a,obs_min_target_kgm2a,above_min_target\n');
-            for b = 1:nBasins
-                fprintf(fid, '%d,%.4f,%.4f,%.4f,%d\n', ...
-                        unique_basins_out(b) - 1, ...
-                        2.0, melt_basin(b), target_mean(b) - target_err(b), above_min_target(b));
-            end
-            fclose(fid);
-            fprintf('Saved: %s\n', csv_out);
-
-            % --- table 2: total BMB [Gt yr-1] --------------------------------
+            % --- table: total BMB [Gt yr-1] --------------------------------
             obs_min_total   = target_total - target_total_err;
             above_min_total = double(total_bmb_Gtyr >= obs_min_total);
 
@@ -286,8 +269,8 @@ function md=meltMIp(steps,j,loadonly)
     if perform(org, 'get_dT_min_BMB')  % {{{
         % Single-timestep ISSM solve at dT = -2°C for all basins.
         % Symmetric counterpart to get_dT_max_BMB: establishes the lower-bound
-        % melt map.  Basins where melt(-2) > target_mean + target_err are
-        % flagged 0 (too warm to be corrected into the observational range).
+        % melt map.  Basins where total_bmb(-2) > target_total + target_total_err
+        % are flagged 0 (too warm to be corrected into the observational range).
         gamma0_tune = 1.2409e+04;   % m/yr/°C²  (must match get_dT_max_BMB)
 
         md = loadmodel(inputmodel_relax);
@@ -339,39 +322,21 @@ function md=meltMIp(steps,j,loadonly)
             [melt_basin, unique_basins_out, total_bmb_Gtyr] = calc_basin_mean_melt( ...
                 melt_v_dTm2, md, basinid, md.materials.rho_ice);
 
-            % --- observational targets (Paolo / Adusumilli) ------------------
-            csv_path       = ['./../raw_data/ISMIP7/AIS/parameterisations/ocean/meltobs/' ...
-                              'Melt_Paolo_Err_Adusumilli_imbie2_v3.csv'];
-            T_csv          = readmatrix(csv_path, 'NumHeaderLines', 1);
-            target_mean    = zeros(nBasins, 1);
-            target_err     = zeros(nBasins, 1);
+            % --- observational targets (Paolo / Adusumilli), total BMB only --
+            % melt_obs_csv now has 3 columns: basin, BMR (Gt/yr), BMR uncert (Gt/yr)
+            % (no AvgBMR columns; area-averaged-rate target no longer used for K selection)
+            T_csv          = readmatrix(melt_obs_csv, 'NumHeaderLines', 1);
             target_total   = zeros(nBasins, 1);   % BMR [Gt/yr]
-            target_total_err = zeros(nBasins, 1); % BMR_uncert [Gt/yr]
+            target_total_err = zeros(nBasins, 1); % BMR uncert [Gt/yr]
             for i = 1:size(T_csv, 1)
                 b_matlab = T_csv(i,1) + 1;   % CSV 0-based → MATLAB 1-based
                 if b_matlab >= 1 && b_matlab <= nBasins
-                    target_mean(b_matlab)      = T_csv(i, 5);   % AvgBMR [kg/m2/a]
-                    target_err(b_matlab)       = T_csv(i, 6);   % AvgBMR_uncert [kg/m2/a]
                     target_total(b_matlab)     = T_csv(i, 2);   % BMR [Gt/yr]
-                    target_total_err(b_matlab) = T_csv(i, 4);   % BMR_uncert [Gt/yr]
+                    target_total_err(b_matlab) = T_csv(i, 3);   % BMR uncert [Gt/yr]
                 end
             end
 
-            % --- table 1: area-averaged rates [kg m-2 a-1] ------------------
-            below_max_target = double(melt_basin <= (target_mean + target_err));
-
-            csv_out = [directory '/dT_min_melt_diagnostic.csv'];
-            fid = fopen(csv_out, 'w');
-            fprintf(fid, 'basin,dT,melt_model_kgm2a,obs_max_target_kgm2a,below_max_target\n');
-            for b = 1:nBasins
-                fprintf(fid, '%d,%.4f,%.4f,%.4f,%d\n', ...
-                        unique_basins_out(b) - 1, ...
-                        -2.0, melt_basin(b), target_mean(b) + target_err(b), below_max_target(b));
-            end
-            fclose(fid);
-            fprintf('Saved: %s\n', csv_out);
-
-            % --- table 2: total BMB [Gt yr-1] --------------------------------
+            % --- table: total BMB [Gt yr-1] --------------------------------
             obs_max_total   = target_total + target_total_err;
             below_max_total = double(total_bmb_Gtyr <= obs_max_total);
 
@@ -444,42 +409,21 @@ function md=meltMIp(steps,j,loadonly)
             [melt_basin, unique_basins_out, total_bmb_Gtyr] = calc_basin_mean_melt( ...
                 melt_v_dT0, md, basinid, md.materials.rho_ice);
 
-            % --- observational targets (Paolo / Adusumilli) ------------------
-            csv_path       = ['./../raw_data/ISMIP7/AIS/parameterisations/ocean/meltobs/' ...
-                              'Melt_Paolo_Err_Adusumilli_imbie2_v3.csv'];
-            T_csv          = readmatrix(csv_path, 'NumHeaderLines', 1);
-            target_mean    = zeros(nBasins, 1);
-            target_err     = zeros(nBasins, 1);
+            % --- observational targets (Paolo / Adusumilli), total BMB only --
+            % melt_obs_csv now has 3 columns: basin, BMR (Gt/yr), BMR uncert (Gt/yr)
+            % (no AvgBMR columns; area-averaged-rate target no longer used for K selection)
+            T_csv          = readmatrix(melt_obs_csv, 'NumHeaderLines', 1);
             target_total   = zeros(nBasins, 1);
             target_total_err = zeros(nBasins, 1);
             for i = 1:size(T_csv, 1)
                 b_matlab = T_csv(i,1) + 1;
                 if b_matlab >= 1 && b_matlab <= nBasins
-                    target_mean(b_matlab)      = T_csv(i, 5);   % AvgBMR [kg/m2/a]
-                    target_err(b_matlab)       = T_csv(i, 6);   % AvgBMR_uncert [kg/m2/a]
                     target_total(b_matlab)     = T_csv(i, 2);   % BMR [Gt/yr]
-                    target_total_err(b_matlab) = T_csv(i, 4);   % BMR_uncert [Gt/yr]
+                    target_total_err(b_matlab) = T_csv(i, 3);   % BMR uncert [Gt/yr]
                 end
             end
 
-            % --- table 1: area-averaged rates [kg m-2 a-1] ------------------
-            % flag = 1 if model is within [target - uncert, target + uncert]
-            in_range_mean = double( ...
-                melt_basin >= (target_mean - target_err) & ...
-                melt_basin <= (target_mean + target_err));
-
-            csv_out = [directory '/dT_zero_melt_diagnostic.csv'];
-            fid = fopen(csv_out, 'w');
-            fprintf(fid, 'basin,dT,melt_model_kgm2a,obs_mean_kgm2a,obs_uncert_kgm2a,in_obs_range\n');
-            for b = 1:nBasins
-                fprintf(fid, '%d,%.4f,%.4f,%.4f,%.4f,%d\n', ...
-                        unique_basins_out(b) - 1, ...
-                        0.0, melt_basin(b), target_mean(b), target_err(b), in_range_mean(b));
-            end
-            fclose(fid);
-            fprintf('Saved: %s\n', csv_out);
-
-            % --- table 2: total BMB [Gt yr-1] --------------------------------
+            % --- table: total BMB [Gt yr-1] --------------------------------
             % flag = 1 if model is within [target_total - uncert, target_total + uncert]
             in_range_total = double( ...
                 total_bmb_Gtyr >= (target_total - target_total_err) & ...
@@ -498,6 +442,9 @@ function md=meltMIp(steps,j,loadonly)
         end
     end  % }}}
 
+    %% ---------------------------------------------------------------
+    %% dT correction tuning  (steps7-8iterate melt slopes missmatch (manually change j)
+    %% ---------------------------------------------------------------
     if perform(org, 'get_dT_inital_slopes')  % {{{
         % Iterative secant-method dT tuning using actual ISSM evaluations.
         % Target metric: total BMB [Gt yr-1] per basin (Paolo/Adusumilli).
@@ -536,16 +483,14 @@ function md=meltMIp(steps,j,loadonly)
         [~, ~,                 Mtot_0] = calc_basin_mean_melt(melt_v_dT0, md_dT0, basinid, rho_ice);
 
         % --- observational targets [Gt yr-1] ---------------------------------
-        csv_path = ['./../raw_data/ISMIP7/AIS/parameterisations/ocean/meltobs/' ...
-                    'Melt_Paolo_Err_Adusumilli_imbie2_v3.csv'];
-        T_csv    = readmatrix(csv_path, 'NumHeaderLines', 1);
+        T_csv    = readmatrix(melt_obs_csv, 'NumHeaderLines', 1);
         Mtarget  = zeros(nBasins, 1);
         Muncert  = zeros(nBasins, 1);
         for i = 1:size(T_csv, 1)
             b_matlab = T_csv(i,1) + 1;   % CSV 0-based → MATLAB 1-based
             if b_matlab >= 1 && b_matlab <= nBasins
                 Mtarget(b_matlab) = T_csv(i, 2);   % BMR [Gt/yr]
-                Muncert(b_matlab) = T_csv(i, 4);   % BMR_uncert [Gt/yr]
+                Muncert(b_matlab) = T_csv(i, 3);   % BMR uncert [Gt/yr]
             end
         end
 
@@ -612,16 +557,14 @@ function md=meltMIp(steps,j,loadonly)
 
 
         % --- observational targets [Gt yr-1] ---------------------------------
-        csv_path = ['./../raw_data/ISMIP7/AIS/parameterisations/ocean/meltobs/' ...
-                    'Melt_Paolo_Err_Adusumilli_imbie2_v3.csv'];
-        T_csv    = readmatrix(csv_path, 'NumHeaderLines', 1);
+        T_csv    = readmatrix(melt_obs_csv, 'NumHeaderLines', 1);
         Mtarget  = zeros(nBasins, 1);
         Muncert  = zeros(nBasins, 1);
         for i = 1:size(T_csv, 1)
             b_matlab = T_csv(i,1) + 1;   % CSV 0-based → MATLAB 1-based
             if b_matlab >= 1 && b_matlab <= nBasins
                 Mtarget(b_matlab) = T_csv(i, 2);   % BMR [Gt/yr]
-                Muncert(b_matlab) = T_csv(i, 4);   % BMR_uncert [Gt/yr]
+                Muncert(b_matlab) = T_csv(i, 3);   % BMR uncert [Gt/yr]
             end
         end
 
