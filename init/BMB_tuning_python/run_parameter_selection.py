@@ -242,12 +242,12 @@ for label, K in K_compare.items():
         'Diff (Gt/a)':     round(mod_total - obs_total),
     })
 df_ais = pd.DataFrame(rows, index=K_compare.keys())
-print('\nAIS-wide melt (Term 1 — Paolo/Adusumilli):')
+print('\nAIS-wide melt (Term 1 — Paolo/Davison/Adusumilli):')
 print(df_ais.to_string())
 
 out_ais = os.path.join(figure_dir, 'parameter_selection_AIS_summary.txt')
 with open(out_ais, 'w') as f:
-    f.write('AIS-wide melt (Term 1 — Paolo/Adusumilli)\n')
+    f.write('AIS-wide melt (Term 1 — Paolo/Davison/Adusumilli)\n')
     f.write(df_ais.to_string())
     f.write('\n')
 print(f'Saved: {out_ais}')
@@ -283,49 +283,88 @@ with open(out_t1, 'w') as f:
     f.write('\n')
 print(f'Saved: {out_t1}')
 
-# ---- validation figure
-fig, axes = plt.subplots(2, 2, figsize=(14, 9), constrained_layout=True)
+# ---- validation figure: one panel per term
+# band = K_5th..K_95th envelope, solid line = K_50th (median), dashed = K_mode
+band_color = '#2166AC'
+mode_color = 'orange'
 
-# [0,0] Term 1: modelled vs observed per basin
-ax = axes[0, 0]
-ax.errorbar(basins_x, t1_obs_mean, yerr=t1_obs_sigma,
-            fmt='o', color='black', capsize=4, label='Observed', zorder=5)
-for label, K in K_compare.items():
-    mod = t1_model.isel(p2=0).sel(p1=K, method='nearest')
-    ax.plot(basins_x, mod.values, label=f'K {label} ({K:.2e})', color=clrs[label])
-ax.set_xlabel('Basin')
-ax.set_ylabel('Melt rate (Gt/a)')
-ax.set_title('Term 1: basin-integrated melt vs Paolo/Adusumilli')
-ax.legend(fontsize=8)
 
-# [0,1] Term 1: difference (model − obs) per basin
-ax = axes[0, 1]
-ax.axhline(0, color='black', linewidth=0.8, linestyle='--')
-for label, K in K_compare.items():
-    mod = t1_model.isel(p2=0).sel(p1=K, method='nearest')
-    ax.plot(basins_x, mod.values - t1_obs_mean, label=f'K {label}', color=clrs[label])
-ax.set_xlabel('Basin')
-ax.set_ylabel('Model − observed (Gt/a)')
-ax.set_title('Term 1: bias per basin')
-ax.legend(fontsize=8)
+def _band_median_mode(model_da):
+    """K_5th/K_50th/K_95th/K_mode slices of a (..., p1, p2) DataArray."""
+    med  = model_da.isel(p2=0).sel(p1=K_50th, method='nearest').values
+    p05  = model_da.isel(p2=0).sel(p1=K_5th,  method='nearest').values
+    p95  = model_da.isel(p2=0).sel(p1=K_95th, method='nearest').values
+    mode = model_da.isel(p2=0).sel(p1=K_mode, method='nearest').values
+    return med, p05, p95, mode
 
-# [1,0] and [1,1] Term 3: warm−cold anomaly per basin for each ocean model
-for col, om in enumerate(['mathiot', 'naughten_ais_1']):
-    om_title = {'mathiot': 'Mathiot NEMO', 'naughten_ais_1': 'Naughten FESOM-ACCESS'}[om]
-    ax = axes[1, col]
-    obs3 = t3_obs_mean.sel(model=om)
-    sig3 = t3_obs_sigma.sel(model=om)
-    basins3 = obs3.basins.values
-    ax.errorbar(basins3, obs3.values, yerr=sig3.values,
-                fmt='o', color='black', capsize=4, label='Target', zorder=5)
-    for label, K in K_compare.items():
-        mod3 = t3_model.isel(p2=0).sel(p1=K, method='nearest').sel(model=om)
-        ax.plot(basins3, mod3.values, label=f'K {label}', color=clrs[label])
-    ax.axhline(0, color='grey', linewidth=0.5, linestyle='--')
-    ax.set_xlabel('Basin')
-    ax.set_ylabel('Warm − cold melt (kg m⁻² yr⁻¹)')
-    ax.set_title(f'Term 3: {om_title}')
+
+def _plot_term(ax, x, obs, sig, model_da, xlabel, ylabel, title):
+    med, p05, p95, mode = _band_median_mode(model_da)
+    ax.fill_between(x, p05, p95, color=band_color, alpha=0.3, label='5th–95th')
+    ax.plot(x, med, color=band_color, label='median')
+    ax.plot(x, mode, color=mode_color, linestyle='--', label='mode')
+    ax.errorbar(x, obs, yerr=sig, fmt='o', color='black', capsize=4,
+                label='Target', zorder=5)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
     ax.legend(fontsize=8)
+
+
+fig, axes = plt.subplots(2, 2, figsize=(12, 10), constrained_layout=True)
+
+# [0,0] Term 1: basin-integrated melt
+_plot_term(
+    axes[0, 0], basins_x, t1_obs_mean, t1_obs_sigma, t1_model,
+    'Basin', 'Melt rate (Gt/a)',
+    'Term 1: basin-integrated melt vs Paolo/Davison/Adusumilli',
+)
+
+# [0,1] Term 2: buttressing-bin melt
+bins2 = t2_obs_mean.BFRN_bins.values
+_plot_term(
+    axes[0, 1], bins2, t2_obs_mean.values, t2_obs_sigma.values, t2_model,
+    'BFRN bin', 'Melt rate (Gt/a)',
+    'Term 2: buttressing-bin melt vs target',
+)
+
+# [1,0] Term 3: warm−cold anomaly, model+basin stacked (only Mathiot and
+# Naughten AIS-1 are weighted in the objective function, see t3_weights above)
+t3_sel = (
+    t3_model.sel(model=['mathiot', 'naughten_ais_1'])
+    .stack(modelbasin=('model', 'basins'))
+    .dropna(dim='modelbasin')
+)
+obs3 = t3_obs_mean.sel(model=['mathiot', 'naughten_ais_1']).stack(
+    modelbasin=('model', 'basins')).sel(modelbasin=t3_sel.modelbasin)
+sig3 = t3_obs_sigma.sel(model=['mathiot', 'naughten_ais_1']).stack(
+    modelbasin=('model', 'basins')).sel(modelbasin=t3_sel.modelbasin)
+x3 = np.arange(len(t3_sel.modelbasin))
+_plot_term(
+    axes[1, 0], x3, obs3.values, sig3.values, t3_sel,
+    None, 'Warm − cold melt (kg m⁻² yr⁻¹)',
+    'Term 3: warm − cold anomaly (Mathiot, Naughten)',
+)
+axes[1, 0].axhline(0, color='grey', linewidth=0.5, linestyle='--')
+axes[1, 0].set_xticks(x3)
+axes[1, 0].set_xticklabels(
+    [f'{m}-{b}' for m, b in t3_sel.modelbasin.values], rotation=90, fontsize=7)
+
+# [1,1] Term 4: PIG/Dotson observed years, region+year stacked
+t4_sel = t4_model.stack(region_year=('region', 'year')).dropna(dim='region_year')
+obs4 = t4_obs_mean.stack(region_year=('region', 'year')).sel(
+    region_year=t4_sel.region_year)
+sig4 = t4_obs_sigma.stack(region_year=('region', 'year')).sel(
+    region_year=t4_sel.region_year)
+x4 = np.arange(len(t4_sel.region_year))
+_plot_term(
+    axes[1, 1], x4, obs4.values, sig4.values, t4_sel,
+    None, 'Melt rate (Gt/a)',
+    'Term 4: PIG/Dotson observed-year melt vs target',
+)
+axes[1, 1].set_xticks(x4)
+axes[1, 1].set_xticklabels(
+    [f'{r}-{y}' for r, y in t4_sel.region_year.values], rotation=90, fontsize=8)
 
 out_val = os.path.join(figure_dir, 'parameter_selection_validation.png')
 fig.savefig(out_val, dpi=150)
@@ -340,4 +379,4 @@ savemat(K_mat, {
     'K_50th': K_50th,
     'K_95th': K_95th,
 })
-print(f'Saved: {K_mat}  (run meltMip_ensemble step 11 to write gamma0_local.mat)')
+print(f'Saved: {K_mat}  (run meltMip_ensemble step 16 to write gamma0_local.mat)')
