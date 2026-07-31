@@ -155,10 +155,11 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
         % seasonal anomaly against. Equal weighting (not day-in-month weighting)
         % matches md.timestepping.time_step = 1/12, which also treats every month
         % as exactly 1/12 year regardless of its real length. Forcing is stored one
-        % value per year (t_smb = integer years); with interp_forcing = 1, ISSM
-        % linearly interpolates between consecutive annual values for each monthly
-        % sub-step, so the seasonal cycle is not resolved -- only the inter-annual
-        % trend is.
+        % value per year (t_smb = integer years); with interp_forcing = 0, ISSM
+        % holds each year's value constant (step function) instead of
+        % interpolating, so neither the monthly seasonal cycle nor a smooth
+        % inter-annual transition is resolved -- forcing jumps discretely at
+        % each year boundary.
 
         md   = loadmodel(inputmodel_relax);
         m    = ((1+sin(71*pi/180))*ones(md.mesh.numberofvertices,1) ...
@@ -303,7 +304,7 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
         md.transient.isstressbalance = 1;
         md.masstransport.spcthickness   = NaN*ones(md.mesh.numberofvertices, 1);
         md.outputdefinition.definitions = {};
-        md.timestepping.interp_forcing  = 1;
+        md.timestepping.interp_forcing  = 0;
 
         md.timestepping.start_time = start_year;
         md.timestepping.final_time = start_year + 1;   % single year: 1995 -> 1996
@@ -332,7 +333,8 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
         load([preproc_ocean 'gamma0_local.mat']);
 
         unique_basinid = unique(basinid);
-        delta_t        = zeros(1, length(unique_basinid));
+        tmp     = load([preproc_ocean 'dT_correction.mat'], 'dT_correction');
+        delta_t = tmp.dT_correction;   % 1 x nBasins, from meltMip_ensemble.m step 8 (get_dT_iterate_BMB_j)
 
         md.basalforcings            = basalforcingsismip6(md.basalforcings);
         md.basalforcings.basin_id   = basinid;
@@ -464,7 +466,7 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
         md.transient.isstressbalance = 1;
         md.masstransport.spcthickness   = NaN*ones(md.mesh.numberofvertices, 1);
         md.outputdefinition.definitions = {};
-        md.timestepping.interp_forcing  = 1;
+        md.timestepping.interp_forcing  = 0;
 
         md.timestepping.start_time = start_year;
         md.timestepping.final_time = end_year + 1;
@@ -493,7 +495,8 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
         load([preproc_ocean 'gamma0_local.mat']);
 
         unique_basinid = unique(basinid);
-        delta_t        = zeros(1, length(unique_basinid));
+        tmp     = load([preproc_ocean 'dT_correction.mat'], 'dT_correction');
+        delta_t = tmp.dT_correction;   % 1 x nBasins, from meltMip_ensemble.m step 8 (get_dT_iterate_BMB_j)
 
         md.basalforcings            = basalforcingsismip6(md.basalforcings);
         md.basalforcings.basin_id   = basinid;
@@ -782,7 +785,7 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
         md.transient.isstressbalance = 1;
         md.masstransport.spcthickness   = NaN*ones(md.mesh.numberofvertices, 1);
         md.outputdefinition.definitions = {};
-        md.timestepping.interp_forcing  = 1;
+        md.timestepping.interp_forcing  = 0;
 
         md.timestepping.start_time = start_year;
         md.timestepping.final_time = end_year + 1;
@@ -811,7 +814,8 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
         load([preproc_ocean 'gamma0_local.mat']);
 
         unique_basinid = unique(basinid);
-        delta_t        = zeros(1, length(unique_basinid));
+        tmp     = load([preproc_ocean 'dT_correction.mat'], 'dT_correction');
+        delta_t = tmp.dT_correction;   % 1 x nBasins, from meltMip_ensemble.m step 8 (get_dT_iterate_BMB_j)
 
         md.basalforcings            = basalforcingsismip6(md.basalforcings);
         md.basalforcings.basin_id   = basinid;
