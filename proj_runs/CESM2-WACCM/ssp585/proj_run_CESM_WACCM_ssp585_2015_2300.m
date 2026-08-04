@@ -6,7 +6,9 @@ function md = proj_run_CESM_WACCM_ssp585_2015_2300(steps, loadonly)
 %   ssp126 | ssp370 | ssp534-over | ssp585
 %
 % Forcing sources (all under raw_data/ISMIP7/AIS/CESM2-WACCM/<SCENARIO>/):
-%   Ocean TF   : ocean/tf/v3/  (decade NetCDF chunks 2015-2299; 2299 repeated for 2300)
+%   Ocean TF   : ocean/tf/v3/  (decade NetCDF chunks 2015-2299, no 2300 file --
+%                the saved forcing series simply ends at 2299; ISSM holds the
+%                last value for later times since interp_forcing=0)
 %   SMB        : SDBN1-2000m/acabf/v2/    (annual NetCDF, kg m-2 s-1, 2015-2300)
 %   SMB grad   : SDBN1-2000m/dacabfdz/v2/ (annual NetCDF, kg m-2 s-1 m-1, 2015-2300)
 %   Levelset   : fracture/ice_shelf_collapse_mask_<model>_<scenario>_ismip7_8km.nc
@@ -104,8 +106,14 @@ function md = proj_run_CESM_WACCM_ssp585_2015_2300(steps, loadonly)
 
     % ================================================================= Step 1
     if perform(org, 'ProjTF') % {{{
-        % Build annual TF matrix 2015-2300 from decade NetCDF chunks.
-        % TF files cover 2015-2299; year 2300 is filled by repeating 2299.
+        % Build annual TF matrix from decade NetCDF chunks, up to whatever
+        % the last real chunk actually covers (last chunk is 2291-2299 --
+        % there is no 2300 file). Do NOT fabricate a padded/repeated entry
+        % beyond that: the array is saved exactly as long as the real data.
+        % The transient-run steps run past this array's end anyway (final_time
+        % = end_year+1); with interp_forcing=0 (step-function forcing), ISSM
+        % holds the last supplied year's TF constant for any later time, so
+        % no explicit padding is needed here.
         % Fields are clamped >= 0 (basalforcingsismip6 consistency check).
         md = loadmodel(inputmodel_2015);
 
@@ -118,13 +126,11 @@ function md = proj_run_CESM_WACCM_ssp585_2015_2300(steps, loadonly)
         nDepths = length(z_data);
         nVerts  = md.mesh.numberofvertices;
 
-        % Forcing array spans start_year:end_year+1 so the final_time=end_year+1
-        % time step has a valid TF value; end_year+1 is filled by repeating end_year.
-        years   = start_year : end_year + 1;
-        nyears  = length(years);
-        tf_mat  = zeros(nVerts, nyears, nDepths);
-        t_vec   = years;
-        tf_last = [];
+        % Upper-bound allocation at end_year; trimmed below to the last
+        % year for which a real file was actually found.
+        years        = start_year : end_year;
+        tf_mat       = zeros(nVerts, length(years), nDepths);
+        last_real_yr = -Inf;
 
         for fi = 1:length(tf_files)
             fpath = [tf_dir tf_files{fi}];
@@ -144,18 +150,25 @@ function md = proj_run_CESM_WACCM_ssp585_2015_2300(steps, loadonly)
                                             md.mesh.x, md.mesh.y, 0);
                     tf_mat(:, ki, i) = max(v, 0);
                 end
-                if yr == end_year
-                    tf_last = squeeze(tf_mat(:, ki, :));
-                end
+                last_real_yr = max(last_real_yr, yr);
             end
         end
 
-        % Fill end_year+1 by repeating end_year (no TF data beyond end_year)
-        if ~isempty(tf_last)
-            tf_mat(:, end, :) = tf_last;
-            fprintf('[INFO] TF %d filled by repeating %d.\n', end_year+1, end_year);
-        else
-            warning('TF for end_year (%d) not found; end_year+1 entry will be zero.', end_year);
+        if isinf(last_real_yr)
+            error('No real TF data found in [%d, %d].', start_year, end_year);
+        end
+
+        % Trim to the years that actually have real data -- no fabricated tail.
+        nkeep  = last_real_yr - start_year + 1;
+        years  = start_year : last_real_yr;
+        nyears = length(years);
+        tf_mat = tf_mat(:, 1:nkeep, :);
+        t_vec  = years;
+        if last_real_yr < end_year
+            fprintf(['[INFO] TF data only found through %d (< end_year=%d); ' ...
+                     'forcing series ends there -- relying on ISSM to hold ' ...
+                     'the last value for later times (interp_forcing=0).\n'], ...
+                    last_real_yr, end_year);
         end
 
         tf_proj = cell(1, 1, nDepths);
@@ -167,12 +180,24 @@ function md = proj_run_CESM_WACCM_ssp585_2015_2300(steps, loadonly)
         save([preproc_proj_ocean 'CESM_WACCM_TF_' SCENARIO '_' ...
               num2str(start_year) '_' num2str(end_year) '.mat'], ...
              'tf_proj', 'z_data', 't_vec', '-v7.3');
-        fprintf('Saved TF: %d years (%d-%d), %d depths.\n', nyears, start_year, end_year+1, nDepths);
+        fprintf('Saved TF: %d years (%d-%d), %d depths.\n', nyears, start_year, last_real_yr, nDepths);
     end % }}}
 
     % ================================================================= Step 2
     if perform(org, 'ProjSMB') % {{{
-        % Build annual SMB matrix 2015-2300.
+        % Build annual SMB matrix, up to whatever year the source files
+        % actually contain real data. Per-year files can exist as empty
+        % placeholders (time dimension UNLIMITED, 0 records currently --
+        % confirmed for ssp585 year 2300's acabf AND dacabfdz files via
+        % ncdump) rather than being simply absent like TF's decade chunks,
+        % so each year's 'time' coordinate is checked (cheap 1D read) before
+        % reading/interpolating the full spatial field. Do NOT fabricate a
+        % padded/repeated entry for a missing year: the array is saved
+        % exactly as long as the real data. The transient-run steps run
+        % past this array's end anyway; with interp_forcing=0 (step-function
+        % forcing), ISSM holds the last supplied year's SMB constant for any
+        % later time, so no explicit padding is needed here.
+        %
         % Convention (identical to hist_run_tune_CESM_WACCM step 2):
         %   smb_yr = smb_racmo + (cesm_yr_ssp - cesm_hist_mean_1995_2014)
         % Units: mm w.e. yr-1 for smbref; mm w.e. yr-1 m-1 for b_pos/b_neg.
@@ -202,32 +227,56 @@ function md = proj_run_CESM_WACCM_ssp585_2015_2300(steps, loadonly)
         x_s = double(ncread(nc_first, 'x'));
         y_s = double(ncread(nc_first, 'y'));
 
-        % Build annual projection matrices 2015-2299
+        % Upper-bound allocation at end_year; trimmed below to the last year
+        % for which both acabf and dacabfdz actually contain real data.
         years        = start_year : end_year;
-        nyears       = length(years);
-        smb_matrix   = zeros(nVerts, nyears);
-        bgrad_matrix = zeros(nVerts, nyears);
-        t_smb        = years;
+        nyears_max   = length(years);
+        smb_matrix   = zeros(nVerts, nyears_max);
+        bgrad_matrix = zeros(nVerts, nyears_max);
+        last_real_yr = start_year - 1;
 
-        for k = 1:nyears
+        for k = 1:nyears_max
             yr = years(k);
 
-            nc_smb = [smb_ssp_dir sprintf('acabf_AIS_%s_%s_SDBN1-2000m_v2_%d.nc', CMIP_MODEL, SCENARIO, yr)];
+            nc_smb  = [smb_ssp_dir sprintf('acabf_AIS_%s_%s_SDBN1-2000m_v2_%d.nc', CMIP_MODEL, SCENARIO, yr)];
+            nc_grad = [grad_ssp_dir sprintf('dacabfdz_AIS_%s_%s_SDBN1-2000m_v2_%d.nc', CMIP_MODEL, SCENARIO, yr)];
+
+            % Cheap check: an empty placeholder file has 'time' UNLIMITED
+            % with 0 records currently -- reading just the time coordinate
+            % (not the full 3041x3041 spatial field) is enough to detect it.
+            if isempty(ncread(nc_smb, 'time')) || isempty(ncread(nc_grad, 'time'))
+                fprintf('[INFO] %d: acabf/dacabfdz has no data (empty placeholder) -- stopping SMB series here.\n', yr);
+                break;
+            end
+
             am     = mean(double(ncread(nc_smb, 'acabf')), 3);
             cesm_yr = InterpFromGridToMesh(x_s, y_s, am', md.mesh.x, md.mesh.y, 0) * sec_to_year;
             smb_matrix(:,k) = p_vert .* smb_racmo + (cesm_yr - cesm_hist_mean);
 
-            nc_grad  = [grad_ssp_dir sprintf('dacabfdz_AIS_%s_%s_SDBN1-2000m_v2_%d.nc', CMIP_MODEL, SCENARIO, yr)];
             g_raw    = squeeze(double(ncread(nc_grad, 'dacabfdz')));
             if ndims(g_raw) == 3
                 g_raw = mean(g_raw, 3);
             end
             bgrad_matrix(:,k) = InterpFromGridToMesh(x_s, y_s, g_raw', md.mesh.x, md.mesh.y, 0) * sec_to_year;
 
+            last_real_yr = yr;
+
             if mod(yr, 10) == 0
                 fprintf('  SMB+grad year %d\n', yr);
             end
         end
+
+        if last_real_yr < start_year
+            error('No real SMB data found in [%d, %d].', start_year, end_year);
+        end
+
+        % Trim to the years that actually have real data -- no fabricated tail.
+        nkeep        = last_real_yr - start_year + 1;
+        years        = start_year : last_real_yr;
+        nyears       = length(years);
+        smb_matrix   = smb_matrix(:, 1:nkeep);
+        bgrad_matrix = bgrad_matrix(:, 1:nkeep);
+        t_smb        = years;
 
         smb_forcing   = [smb_matrix  ; t_smb];
         bgrad_forcing = [bgrad_matrix ; t_smb];
@@ -235,7 +284,7 @@ function md = proj_run_CESM_WACCM_ssp585_2015_2300(steps, loadonly)
         save([preproc_proj_atmo 'CESM_WACCM_SMB_' SCENARIO '_' ...
               num2str(start_year) '_' num2str(end_year) '.mat'], ...
              'smb_forcing', 'bgrad_forcing', 't_smb', '-v7.3');
-        fprintf('Saved SMB forcing.\n');
+        fprintf('Saved SMB forcing: %d years (%d-%d).\n', nyears, start_year, last_real_yr);
     end % }}}
 
     % ================================================================= Step 3
@@ -324,7 +373,7 @@ function md = proj_run_CESM_WACCM_ssp585_2015_2300(steps, loadonly)
         md.transient.isstressbalance = 1;
         md.masstransport.spcthickness   = NaN*ones(md.mesh.numberofvertices, 1);
         md.outputdefinition.definitions = {};
-        md.timestepping.interp_forcing  = 1;
+        md.timestepping.interp_forcing  = 0;
 
         md.timestepping.start_time = start_year;
         md.timestepping.final_time = mid_year + 1;   % last snapshot at 2151
@@ -352,7 +401,8 @@ function md = proj_run_CESM_WACCM_ssp585_2015_2300(steps, loadonly)
         end
 
         unique_basinid = unique(basinid);
-        delta_t        = zeros(1, length(unique_basinid));
+        tmp     = load([preproc_ocean 'dT_correction.mat'], 'dT_correction');
+        delta_t = tmp.dT_correction;   % 1 x nBasins, from meltMip_ensemble.m step 8 (get_dT_iterate_BMB_j)
 
         md.basalforcings            = basalforcingsismip6(md.basalforcings);
         md.basalforcings.basin_id   = basinid;
@@ -441,7 +491,7 @@ function md = proj_run_CESM_WACCM_ssp585_2015_2300(steps, loadonly)
         md.transient.isstressbalance = 1;
         md.masstransport.spcthickness   = NaN*ones(md.mesh.numberofvertices, 1);
         md.outputdefinition.definitions = {};
-        md.timestepping.interp_forcing  = 1;
+        md.timestepping.interp_forcing  = 0;
 
         md.timestepping.start_time = mid_year + 1;    % 2151
         md.timestepping.final_time = end_year + 1;   % last snapshot at 2300
@@ -468,7 +518,8 @@ function md = proj_run_CESM_WACCM_ssp585_2015_2300(steps, loadonly)
         end
 
         unique_basinid = unique(basinid);
-        delta_t        = zeros(1, length(unique_basinid));
+        tmp     = load([preproc_ocean 'dT_correction.mat'], 'dT_correction');
+        delta_t = tmp.dT_correction;   % 1 x nBasins, from meltMip_ensemble.m step 8 (get_dT_iterate_BMB_j)
 
         md.basalforcings            = basalforcingsismip6(md.basalforcings);
         md.basalforcings.basin_id   = basinid;
@@ -591,7 +642,7 @@ function md = proj_run_CESM_WACCM_ssp585_2015_2300(steps, loadonly)
         meta_t                    = struct();
         meta_t.experiment_id      = SCENARIO;
         meta_t.set_counter        = 'C007';
-        meta_t.time_range         = '2015-2299';
+        meta_t.time_range         = '2015-2300';
         meta_t.ESM_id             = CMIP_MODEL;
         meta_t.forcing_member_id  = 'f001';
         meta_t.ISM_member_id      = 'm001';
@@ -686,7 +737,7 @@ function md = proj_run_CESM_WACCM_ssp585_2015_2300(steps, loadonly)
         meta                    = struct();
         meta.experiment_id      = SCENARIO;        % 'ssp585'
         meta.set_counter        = 'C007';
-        meta.time_range         = '2015-2299';
+        meta.time_range         = '2015-2300';
         meta.ESM_id             = CMIP_MODEL;      % 'CESM2-WACCM'
         meta.forcing_member_id  = 'f001';
         meta.ISM_member_id      = 'm001';
