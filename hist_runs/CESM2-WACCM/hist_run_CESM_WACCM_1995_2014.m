@@ -205,7 +205,7 @@ function md = hist_run_CESM_WACCM_1995_2014(steps, loadonly)
         md.transient.isstressbalance = 1;
         md.masstransport.spcthickness   = NaN*ones(md.mesh.numberofvertices, 1);
         md.outputdefinition.definitions = {};
-        md.timestepping.interp_forcing  = 1;
+        md.timestepping.interp_forcing  = 0;
 
         md.timestepping.start_time = start_year;
         md.timestepping.final_time = end_year + 1;   % stop after the 2014 snapshot
@@ -225,7 +225,8 @@ function md = hist_run_CESM_WACCM_1995_2014(steps, loadonly)
         load([preproc_ocean 'gamma0_local.mat']);
 
         unique_basinid = unique(basinid);
-        delta_t        = zeros(1, length(unique_basinid));
+        tmp     = load([preproc_ocean 'dT_correction.mat'], 'dT_correction');
+        delta_t = tmp.dT_correction;   % 1 x nBasins, from meltMip_ensemble.m step 8 (get_dT_iterate_BMB_j)
 
         md.basalforcings            = basalforcingsismip6(md.basalforcings);
         md.basalforcings.basin_id   = basinid;
@@ -287,7 +288,7 @@ function md = hist_run_CESM_WACCM_1995_2014(steps, loadonly)
         write_ismip7_scalar_historical(md, outdir, meta, cfflux_tot, glflux_tot);
     end % }}}
 
-    % ================================================================= Step 2b
+    % ================================================================= Step 3
     if perform(org, 'WriteISMIP6_NetCDF_test') % {{{
         % Quick 2-year compliance test: writes only the first 2 annual outputs
         % (nominal years 1995-1996) to historical_test/ so the checker can be
@@ -317,7 +318,7 @@ function md = hist_run_CESM_WACCM_1995_2014(steps, loadonly)
         write_ismip7_scalar_historical(md, outdir, meta, cfflux_tot, glflux_tot);
     end % }}}
 
-    % ================================================================= Step 3
+    % ================================================================= Step 4
     if perform(org, 'AIS_state_2015') % {{{
 
         md   = loadmodel(org, 'HistRun_1995_2014');
@@ -334,7 +335,7 @@ function md = hist_run_CESM_WACCM_1995_2014(steps, loadonly)
         savemodel(org,md);
     end % }}}
 
-    % ================================================================= Step 4
+    % ================================================================= Step 5
     if perform(org, 'GLFluxSanityCheck') % {{{
         % Lightweight sanity check, split out of step 2 (WriteISMIP6_NetCDF)
         % since that step's full per-variable 2D gridding is slow and this
@@ -385,7 +386,7 @@ function md = hist_run_CESM_WACCM_1995_2014(steps, loadonly)
         fprintf('Saved: %s\n', tablepath);
     end % }}}
 
-    % ================================================================= Step 5
+    % ================================================================= Step 6
     if perform(org, 'GLFluxSanityCheckPlot') % {{{
         % Reads back the table saved by GLFluxSanityCheck and plots it, in
         % its own step so a graphics crash here (see note above) doesn't
@@ -408,7 +409,7 @@ function md = hist_run_CESM_WACCM_1995_2014(steps, loadonly)
         close(gcf);
     end % }}}
 
-    % ================================================================= Step 6
+    % ================================================================= Step 7
     if perform(org, 'GLFluxOrientationDiagnostic') % {{{
         % Diagnostic for the ~6% gap remaining after the Simpson's-rule fix
         % in gl_flux_native_mesh: computes our total BOTH with (corrected)
@@ -449,7 +450,7 @@ function md = hist_run_CESM_WACCM_1995_2014(steps, loadonly)
         fprintf('Saved: %s\n', tablepath);
     end % }}}
 
-    % ================================================================= Step 7
+    % ================================================================= Step 8
     if perform(org, 'GLFluxOrientationDiagnosticPlot') % {{{
         % Reads back the table saved by GLFluxOrientationDiagnostic and
         % plots it, in its own step for the same reason step 5 is separate
