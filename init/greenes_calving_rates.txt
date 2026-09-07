@@ -1,0 +1,59 @@
+Greene ice-mask snapshots: 24, 1997-10-01 -> 2021-03-15
+Grid: dx=500 m, dy=500 m, cell area=0.2500 km^2
+
+1997-10-01 -> 2000-03-15  dt= 2.45y  retreat=  27091.5 km2 (11043.7 km2/yr,  202.3 m/yr linear)  n_pts= 108366 (front= 12474)  all: mean=4983.1 max=  20100.0  front: mean=2075.5 max=20100.0 m/yr
+2000-03-15 -> 2000-10-01  dt= 0.55y  retreat=  14958.8 km2 (27318.4 km2/yr,  521.4 m/yr linear)  n_pts=  59835 (front= 11836)  all: mean=21155.4 max=  73192.5  front: mean=5250.9 max=73192.5 m/yr
+2000-10-01 -> 2001-03-15  dt= 0.45y  retreat=   8229.2 km2 (18216.6 km2/yr,  349.0 m/yr linear)  n_pts=  32917 (front=  9899)  all: mean=11769.9 max=  96521.9  front: mean=5245.9 max=96521.9 m/yr
+2001-03-15 -> 2002-03-15  dt= 1.00y  retreat=   6418.8 km2 (6423.1 km2/yr,  126.4 m/yr linear)  n_pts=  25675 (front=  2916)  all: mean=8256.6 max=  32150.7  front: mean=3123.9 max=32150.7 m/yr
+2002-03-15 -> 2003-03-15  dt= 1.00y  retreat=   7002.0 km2 (7006.8 km2/yr,  137.9 m/yr linear)  n_pts=  28008 (front=  2911)  all: mean=10452.4 max=  30826.9  front: mean=5364.4 max=30826.9 m/yr
+2003-03-15 -> 2004-03-15  dt= 1.00y  retreat=   4455.0 km2 (4445.9 km2/yr,   88.0 m/yr linear)  n_pts=  17820 (front= 10790)  all: mean=1956.8 max=  24938.8  front: mean= 938.0 max=24938.8 m/yr
+2004-03-15 -> 2005-03-15  dt= 1.00y  retreat=   2957.2 km2 (2959.3 km2/yr,   58.1 m/yr linear)  n_pts=  11829 (front=  3441)  all: mean=5160.9 max=  27523.4  front: mean=1580.0 max=27523.4 m/yr
+2005-03-15 -> 2006-03-15  dt= 1.00y  retreat=   2600.8 km2 (2602.5 km2/yr,   51.5 m/yr linear)  n_pts=  10403 (front=  3389)  all: mean=3285.4 max=  22218.8  front: mean=1663.4 max=22218.8 m/yr
+2006-03-15 -> 2007-03-15  dt= 1.00y  retreat=   1497.5 km2 (1498.5 km2/yr,   29.8 m/yr linear)  n_pts=   5990 (front=  2428)  all: mean=2676.1 max=  17732.2  front: mean=1578.6 max=17732.2 m/yr
+2007-03-15 -> 2008-03-15  dt= 1.00y  retreat=   4741.8 km2 (4732.0 km2/yr,   94.2 m/yr linear)  n_pts=  18967 (front=  4648)  all: mean=3135.6 max=  17464.1  front: mean=1924.2 max=17464.1 m/yr
+2008-03-15 -> 2009-03-15  dt= 1.00y  retreat=   4261.8 km2 (4264.7 km2/yr,   84.5 m/yr linear)  n_pts=  17047 (front= 10643)  all: mean=1807.0 max=  20684.2  front: mean= 803.3 max=20684.2 m/yr
+2009-03-15 -> 2010-03-15  dt= 1.00y  retreat=   8051.0 km2 (8056.5 km2/yr,  158.7 m/yr linear)  n_pts=  32204 (front=  5688)  all: mean=13647.8 max=  73536.7  front: mean=5288.7 max=73536.7 m/yr
+2010-03-15 -> 2011-03-15  dt= 1.00y  retreat=   2340.8 km2 (2342.4 km2/yr,   46.9 m/yr linear)  n_pts=   9363 (front=  3975)  all: mean=1319.9 max=   8251.9  front: mean=1038.2 max= 8251.9 m/yr
+2011-03-15 -> 2012-03-15  dt= 1.00y  retreat=   2887.2 km2 (2881.3 km2/yr,   57.5 m/yr linear)  n_pts=  11549 (front=  2824)  all: mean=18823.5 max=  75252.7  front: mean=8636.2 max=75252.7 m/yr
+2012-03-15 -> 2013-03-15  dt= 1.00y  retreat=   3678.0 km2 (3680.5 km2/yr,   74.0 m/yr linear)  n_pts=  14712 (front=  2709)  all: mean=9412.0 max=  35801.6  front: mean=3498.7 max=35801.6 m/yr
+2013-03-15 -> 2014-03-15  dt= 1.00y  retreat=   5088.0 km2 (5091.5 km2/yr,  102.1 m/yr linear)  n_pts=  20352 (front=  7252)  all: mean=3151.7 max=  20416.2  front: mean=1567.8 max=20416.2 m/yr
+2014-03-15 -> 2015-03-15  dt= 1.00y  retreat=   4489.8 km2 (4492.8 km2/yr,   89.7 m/yr linear)  n_pts=  17959 (front=  7141)  all: mean=1464.5 max=   9198.7  front: mean=1142.3 max= 9198.7 m/yr
+2015-03-15 -> 2016-03-15  dt= 1.00y  retreat=   1626.2 km2 (1622.9 km2/yr,   32.7 m/yr linear)  n_pts=   6505 (front=  1779)  all: mean=2797.1 max=  13764.8  front: mean=1604.2 max=13764.8 m/yr
+2016-03-15 -> 2017-03-15  dt= 1.00y  retreat=   2253.0 km2 (2254.5 km2/yr,   45.4 m/yr linear)  n_pts=   9012 (front=  2959)  all: mean=2247.2 max=  22207.5  front: mean=1812.2 max=22207.5 m/yr
+2017-03-15 -> 2018-03-15  dt= 1.00y  retreat=   7252.0 km2 (7257.0 km2/yr,  146.7 m/yr linear)  n_pts=  29008 (front=  2202)  all: mean=14883.1 max=  51243.0  front: mean=7005.4 max=51243.0 m/yr
+2018-03-15 -> 2019-03-15  dt= 1.00y  retreat=    899.0 km2 ( 899.6 km2/yr,   18.2 m/yr linear)  n_pts=   3596 (front=  1321)  all: mean=1746.9 max=   9130.4  front: mean=1323.9 max= 9130.4 m/yr
+2019-03-15 -> 2020-03-15  dt= 1.00y  retreat=   3216.5 km2 (3209.9 km2/yr,   65.0 m/yr linear)  n_pts=  12866 (front=  2207)  all: mean=6988.1 max=  31048.9  front: mean=3034.7 max=31048.9 m/yr
+2020-03-15 -> 2021-03-15  dt= 1.00y  retreat=   7139.5 km2 (7144.4 km2/yr,  144.7 m/yr linear)  n_pts=  28558 (front=  3986)  all: mean=5552.0 max=  26518.2  front: mean=3783.8 max=26518.2 m/yr
+
+Saved: greene_icemask_retreat_rate.csv (23 intervals)
+
+Saved: greene_icemask_retreat_points.csv (532541 individual retreat points, all intervals)
+
+--- Per-interval domain-wide linear retreat rate (m/yr, perimeter-normalised) ---
+Mean  : 118.5
+Median: 88.0
+Max   : 521.4  (2000-03-15 -> 2000-10-01)
+Min   : 18.2  (2018-03-15 -> 2019-03-15)
+
+--- Endpoint (1997->2021) map, long-term average -- diluted, see (4) for true max/min ---
+Retreated area : 62020.2 km2
+Mean rate      : 463.44 m/yr
+
+Saved: greene_icefront_retreat_1997_2021.nc
+
+--- Pooled retreat rate, all 23 intervals, all 532541 points (m/yr) ---
+Mean  : 8558.02
+Median: 3373.86
+Max   : 96521.91
+Min   : 203.82
+Global max occurred in interval 2000-10-01 -> 2001-03-15 -- check this isn't an anomalously short/noisy interval before trusting it
+Global min occurred in interval 1997-10-01 -> 2000-03-15
+
+--- Pooled retreat rate, FRONT-FILTERED (on the pre-existing ice edge only), 119418 points (of 532541 total, 22.4%) (m/yr) ---
+Mean  : 2863.78
+Median: 707.59
+Max   : 96521.91
+Min   : 203.82
+Front-filtered global max occurred in interval 2000-10-01 -> 2001-03-15
+Front-filtered global min occurred in interval 1997-10-01 -> 2000-03-15
+
