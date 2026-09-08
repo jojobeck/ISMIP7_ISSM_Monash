@@ -9,23 +9,34 @@ function md = analyze_proj_ssp585_yearly(steps)
 % ORIGINAL script exactly -- same VAF/SLE formula, same direct (unfiltered)
 % concatenation of TransientSolution arrays, same NetCDF-writing calls --
 % just generalised from 2 fixed segments to however many individual
-% Models_yearly/*.mat files actually exist. load_and_concatenate_yearly_models
-% (proj_runs/functions/) discovers them automatically by scanning that
-% directory (not hardcoded to a specific start/end year), so this works
-% whether the yearly run is complete (full 2015-2300) or only partially run
-% so far (e.g. stopped at 2100) -- other scenarios sharing this same
+% Models_yearly/*.mat files actually exist. Each step below loads ONLY
+% what it needs (proj_runs/functions/), not a single shared up-front load:
+%   - VAFCheck_yearly uses load_yearly_vaf_series -- visits every year
+%     (a VAF/SLE curve can't skip years without leaving a gap) but pulls
+%     only 2 scalars per year, not the full per-year field set.
+%   - WriteISMIP6_NetCDF_yearly uses load_and_concatenate_yearly_models --
+%     the one step that genuinely needs every field for every year (the
+%     ISMIP6 gridded output requires it), and correspondingly the slow
+%     one -- this is inherent, not something this refactor changes.
+%   - CalvingFrontEvolution_yearly uses load_yearly_at_years -- loads only
+%     the ~10 sparse years (every 30) it actually plots, not the whole run.
+% Each loader discovers available years by scanning Models_yearly/ (not
+% hardcoded to a specific start/end year), so this works whether the
+% yearly run is complete (full 2015-2300) or only partially run so far
+% (e.g. stopped at 2100) -- other scenarios sharing this same
 % analyze-script pattern may only ever run to a shorter final year, and
 % nothing here assumes otherwise (see step 2's time_range, computed from
 % the actual data rather than hardcoded, for the one place this used to
-% matter).
+% matter). Because each step is now independent, running e.g. just [1] or
+% just [3] no longer pays the cost of the full multi-hundred-file
+% concatenation that WriteISMIP6_NetCDF_yearly alone actually needs.
 %
 % Step map:
-%   1  VAFCheck_yearly           load+concatenate all yearly models,
-%                                 compute the VAF/SLE curve (identical
+%   1  VAFCheck_yearly           compute the VAF/SLE curve (identical
 %                                 formula to the original's step 7), save
 %                                 figure to postprocessed_data/figures/...
-%   2  WriteISMIP6_NetCDF_yearly same concatenation, writes ISMIP6 NetCDFs
-%                                 via the SAME (untouched)
+%   2  WriteISMIP6_NetCDF_yearly writes ISMIP6 NetCDFs via the SAME
+%                                 (untouched)
 %                                 proj_runs/functions/write_ismip7_2d_projection.m
 %                                 / write_ismip7_scalar_projection.m used
 %                                 by the original script's step 9 --
@@ -52,21 +63,26 @@ function md = analyze_proj_ssp585_yearly(steps)
 %                                 same technique as
 %                                 plot_calvingfront_model_ssp585.m's own
 %                                 plot_calvingfront_evolution), every 30
-%                                 years across the whole combined run
-%                                 (plus the final available year, even if
-%                                 it doesn't fall on an exact 30-year mark
-%                                 from the first year), colour-coded by
-%                                 year over the initial ice-mask
-%                                 background. Saves
+%                                 years across the whole run (plus the
+%                                 final available year, even if it doesn't
+%                                 fall on an exact 30-year mark from the
+%                                 first year), colour-coded by year over
+%                                 the initial ice-mask background. Saves
 %                                 CalvingFront_isoline_yearly_....png to
 %                                 postprocessed_data/figures/...
+%
+% NOTE: this function declares an md output for consistency with this
+% project's other scripts, but only step 2 actually assigns it -- fine
+% for the usage pattern below (nargout==0), but a caller that runs only
+% step 1 or 3 AND captures the output would hit an "output not assigned"
+% error.
 %
 % Usage (run from proj_runs/CESM2-WACCM/ssp585/, ISSM already on the
 % MATLAB path -- pure post-processing, no PBS submission/waitonlock
 % involved at all):
-%   analyze_proj_ssp585_yearly([1])       % VAF check only
-%   analyze_proj_ssp585_yearly([2])       % NetCDF write only
-%   analyze_proj_ssp585_yearly([3])       % calving-front evolution plot only
+%   analyze_proj_ssp585_yearly([1])       % VAF check only (fast)
+%   analyze_proj_ssp585_yearly([2])       % NetCDF write only (slow -- needs every field/year)
+%   analyze_proj_ssp585_yearly([3])       % calving-front evolution plot only (fast)
 %   analyze_proj_ssp585_yearly([1 2 3])   % all three (default)
 
     if nargin < 1 || isempty(steps)
@@ -86,24 +102,13 @@ function md = analyze_proj_ssp585_yearly(steps)
                     'steps', steps, 'color', '34;47;2');
     clear steps;
 
-    % load_and_concatenate_yearly_models (proj_runs/functions/) -- shared
-    % across every scenario's own analyze_proj_<scenario>_yearly.m, since
-    % this discovery/concatenation logic has nothing scenario-specific in
-    % it beyond the SCENARIO string passed in. Loaded once here,
-    % unconditionally, regardless of which steps were requested below --
-    % all three steps need it and re-loading/re-concatenating potentially
-    % hundreds of individual yearly .mat files per step would be wasteful.
-    md = load_and_concatenate_yearly_models(modeldir, SCENARIO);
-
     % ================================================================= Step 1
     if perform(org, 'VAFCheck_yearly') % {{{
-        % Identical formula to the original script's step 7
-        % (VAFContinuityCheck), applied to the single combined (all-years)
-        % TransientSolution instead of 2 segments -- no junction-matching
-        % plot needed since there's only one continuous array here, not
-        % two independently-loaded segments to check against each other.
-        time = [md.results.TransientSolution.time];
-        vaf  = [md.results.TransientSolution.IceVolumeAboveFloatationScaled];
+        % load_yearly_vaf_series (proj_runs/functions/) -- scalar-only
+        % loader, visits every year but never builds the full concatenated
+        % TransientSolution this step doesn't need. Identical VAF/SLE
+        % formula to the original script's step 7 (VAFContinuityCheck).
+        [time, vaf] = load_yearly_vaf_series(modeldir, SCENARIO);
 
         % IceVolumeAboveFloatationScaled is in m^3 (ice volume).
         % SLE [m] = -delta_VAF [m^3] * rho_ice / rho_sw / A_ocean
@@ -131,6 +136,11 @@ function md = analyze_proj_ssp585_yearly(steps)
 
     % ================================================================= Step 2
     if perform(org, 'WriteISMIP6_NetCDF_yearly') % {{{
+        % load_and_concatenate_yearly_models (proj_runs/functions/) -- the
+        % ONE step that genuinely needs the full per-year field set (the
+        % ISMIP6 gridded output requires it), so this is the expensive
+        % load, done only here.
+        %
         % Identical to the original script's step 9 (WriteISMIP6_NetCDF):
         % passes the concatenated TransientSolution straight to the SAME
         % (untouched) write_ismip7_2d_projection / write_ismip7_scalar_projection
@@ -148,6 +158,8 @@ function md = analyze_proj_ssp585_yearly(steps)
         % running this again WILL overwrite whatever is currently in
         % ssp585/, including results from any earlier run of this same
         % yearly script.
+        md = load_and_concatenate_yearly_models(modeldir, SCENARIO);
+
         outdir = [proj_root 'postprocessed_data/CESM2-WACCM/' SCENARIO '/'];
         if ~exist(outdir, 'dir'), mkdir(outdir); end
 
@@ -178,43 +190,46 @@ function md = analyze_proj_ssp585_yearly(steps)
 
     % ================================================================= Step 3
     if perform(org, 'CalvingFrontEvolution_yearly') % {{{
-        % Mesh-native calving-front isoline (MaskIceLevelset==0, the
-        % ice/no-ice boundary -- NOT MaskOceanLevelset, the grounding
-        % line) every 30 years, colour-coded by year, over a grayscale
-        % background of the initial (first-loaded-file) ice mask. Same
-        % isoline() technique as plot_calvingfront_model_ssp585.m's own
-        % plot_calvingfront_evolution (isoline() gives the exact mesh-edge
-        % crossing, not a raster-interpolated contour), just spaced every
-        % 30 years instead of every 10, and driven off the concatenated
-        % yearly-restart TransientSolution instead of the original's 2
-        % fixed segments.
-        time      = [md.results.TransientSolution.time];
-        nearest_t = @(yr) find(abs(time - yr) == min(abs(time - yr)), 1);
-
-        start_yr = round(min(time));
-        end_yr   = round(max(time));
+        % load_yearly_at_years (proj_runs/functions/) -- loads only the
+        % sparse years this plot actually needs (every 30, plus the final
+        % available year), not the whole run. Mesh-native calving-front
+        % isoline (MaskIceLevelset==0, the ice/no-ice boundary -- NOT
+        % MaskOceanLevelset, the grounding line), colour-coded by year,
+        % over a grayscale background of the earliest-loaded-year ice
+        % mask. Same isoline() technique as
+        % plot_calvingfront_model_ssp585.m's own plot_calvingfront_evolution
+        % (isoline() gives the exact mesh-edge crossing, not a
+        % raster-interpolated contour).
+        [avail_years, ~] = discover_yearly_files(modeldir, SCENARIO);
+        start_yr = min(avail_years);
+        end_yr   = max(avail_years);
         cf_years = start_yr:30:end_yr;
         if cf_years(end) ~= end_yr
             cf_years(end+1) = end_yr;   % always show the final available year too
         end
-        n_cf    = length(cf_years);
+
+        % loaded_years is the ACTUAL year loaded per snapshot (snapped to
+        % whatever files exist -- may differ from cf_years if a requested
+        % year isn't available) -- used for the legend labels below so
+        % they always match what was actually plotted.
+        [md_cf, loaded_years] = load_yearly_at_years(modeldir, SCENARIO, cf_years);
+        n_cf    = numel(loaded_years);
         cmap_cf = jet(n_cf);
 
         hi_mod_all = cell(n_cf, 1);
         for k = 1:n_cf
-            ti = nearest_t(cf_years(k));
-            hi_mod_all{k} = isoline(md, md.results.TransientSolution(ti).MaskIceLevelset, ...
+            hi_mod_all{k} = isoline(md_cf, md_cf.results.TransientSolution(k).MaskIceLevelset, ...
                                      'value', 0, 'output', 'matrix');
         end
 
         figure('visible', 'off', 'Position', [0 0 1000 800]);
-        plotmodel(md, 'figure', gcf, 'visible', 'off', 'data', md.mask.ice_levelset, ...
+        plotmodel(md_cf, 'figure', gcf, 'visible', 'off', 'data', md_cf.mask.ice_levelset, ...
                   'colormap', gray, 'caxis', [-1 1], 'title', '', 'colorbar', 0);
         hold on;
         for k = 1:n_cf
             col = cmap_cf(k, :);
             plot(hi_mod_all{k}(:,1), hi_mod_all{k}(:,2), '-', 'Color', col, 'LineWidth', 1.5, ...
-                 'DisplayName', sprintf('%d', cf_years(k)));
+                 'DisplayName', sprintf('%d', loaded_years(k)));
         end
         axis equal tight off;
         legend('Location', 'eastoutside', 'FontSize', 7, 'NumColumns', 1);
