@@ -22,7 +22,7 @@ module load petsc/3.17.4
 module load matlab/R2021b
 module load matlab_licence/monash
 
-steps=[6]
+steps=[4,6]
 loadonly=[1]
 
-matlab -nodisplay -nosplash -softwareopengl -r "addpath('$ISSM_DIR/src/m/dev'); devpath; addpath('$ISSM_DIR/lib'); outputDir='$PBS_JOBFS'; numberOfWorkers=$PBS_NCPUS; proj_run_CESM_WACCM_CTRL_2015_2300($steps, $loadonly), quit" >FuncCtrl.log
+matlab -nodisplay -nosplash -softwareopengl -r "addpath('$ISSM_DIR/src/m/dev'); devpath; addpath('$ISSM_DIR/lib'); outputDir='$PBS_JOBFS'; numberOfWorkers=$PBS_NCPUS; proj_run_CESM_WACCM_ctrl_2015_2300($steps, $loadonly), quit" >FuncCtrl.log

@@ -1,30 +1,37 @@
 function md = proj_run_CESM_WACCM_ctrl_2015_2300(steps, loadonly)
-% Control run 2015-2300: CESM2-WACCM ssp585's real 2015 forcing (ocean TF,
+% Control run 2015-2300: a 2000-2029 CLIMATOLOGICAL MEAN forcing (ocean TF,
 % SMB, SMB gradient), held FIXED for the entire run -- no forcing evolves
-% after 2015. Used as the ISMIP7 control-run baseline to isolate the ice
-% sheet model's own drift from any climate-forcing signal, for comparison
-% against the transient ssp585 run (../ssp585/proj_run_CESM_WACCM_ssp585_2015_2300.m).
+% after 2015. Per the ISMIP7 ctrl-run protocol:
+%   "The experiment starts at year 2015 and ends in 2300, parallel to the
+%   regular projections. The climatology (jan 2000-dec 2029) is created
+%   using a combination of the historical and the SSP126 simulations...
+%   Apart from the climate forcing (climatology, fixed fracture) the
+%   experiment is set up like another projection with SMB-height feedback."
+% Used as the ISMIP7 control-run baseline to isolate the ice sheet model's
+% own drift from any climate-forcing signal, for comparison against the
+% transient ssp585 run (../ssp585/proj_run_CESM_WACCM_ssp585_2015_2300.m).
 %
 % Calving front: NOT prescribed via a levelset time series here (that
 % approach was problematic for this run). Instead md.transient.ismovingfront
 % = 0, so the level-set equation is never solved and the ice front stays
 % frozen at whatever it is in the AIS_state_2015 starting state for the
-% entire run -- no ice-shelf collapse mask is read or used at all.
+% entire run -- no ice-shelf collapse mask is read or used at all. This
+% already satisfies the protocol's "fracture/ice shelf collapse... set
+% constant to 2015 conditions": the ice extent never moves from 2015 at all.
 %
-% Only a single (2015) forcing snapshot is built for each of TF/SMB --
-% with interp_forcing=0 (step-function forcing, set throughout this
-% pipeline), ISSM holds that one value constant for the entire 2015-2300
-% run, so no other years need to be read or interpolated. The whole
-% 286-year run is a single continuous transient (step 3) -- unlike the
-% ssp585 script, there is no need for a mid-run restart split, since the
-% forcing never changes and there's nothing for a restart to help with here.
+% A single climatological forcing snapshot is built for each of TF/SMB --
+% the 2000-2029 mean, combining historical (2000-2014) and ssp126
+% (2015-2029) annual fields -- and held constant for the entire 2015-2300
+% run via interp_forcing=0 (step-function forcing, set throughout this
+% pipeline). The whole 286-year run is a single continuous transient
+% (step 3) -- unlike the ssp585 script, there is no need for a mid-run
+% restart split, since the forcing never changes and there's nothing for a
+% restart to help with here.
 %
-% Forcing sources (all under raw_data/ISMIP7/AIS/CESM2-WACCM/ssp585/, since
-% there is no separate "CTRL" raw data -- the control run reuses ssp585's
-% real 2015 initial fields):
-%   Ocean TF   : ocean/tf/v3/tf_AIS_CESM2-WACCM_ssp585_ocean_v3_2015-2024.nc (year 2015 slice)
-%   SMB        : SDBN1-2000m/acabf/v2/acabf_AIS_CESM2-WACCM_ssp585_SDBN1-2000m_v2_2015.nc
-%   SMB grad   : SDBN1-2000m/dacabfdz/v2/dacabfdz_AIS_CESM2-WACCM_ssp585_SDBN1-2000m_v2_2015.nc
+% Forcing sources for the climatology (raw_data/ISMIP7/AIS/CESM2-WACCM/):
+%   Ocean TF   : historical/ocean/tf/v3/ (2000-2014) + ssp126/ocean/tf/v3/ (2015-2029)
+%   SMB        : historical/SDBN1-2000m/acabf/v2/ (2000-2014) + ssp126/.../acabf/v2/ (2015-2029)
+%   SMB grad   : historical/SDBN1-2000m/dacabfdz/v2/ (2000-2014) + ssp126/.../dacabfdz/v2/ (2015-2029)
 %   SMB anomaly baseline: CESM historical 1995-2014 mean (same as hist_run_tune_CESM_WACCM)
 %   RACMO climatology: raw_data/nc_orig/Atmosphere/smb_rec.mean.1995-2014...
 %
@@ -34,13 +41,13 @@ function md = proj_run_CESM_WACCM_ctrl_2015_2300(steps, loadonly)
 %   is attributable to the forcing, not the initial state)
 %
 % Step map:
-%   1  ProjTF            build a single 2015 TF snapshot, save to
+%   1  ProjTF            build the 2000-2029 climatological TF snapshot, save to
 %                        preprocessed_data/Ocean/Ctrl/CESM2-WACCM/ctrl/
-%   2  ProjSMB           build a single 2015 SMB+gradient snapshot, save to
+%   2  ProjSMB           build the 2000-2029 climatological SMB+gradient snapshot, save to
 %                        preprocessed_data/Atmosphere/Ctrl/CESM2-WACCM/ctrl/
 %   3  ProjRun_2015_2300 single continuous transient 2015-2300 starting from
-%                        AIS_state_2015, forcing held at the 2015 snapshot
-%                        throughout, calving front frozen (ismovingfront=0)
+%                        AIS_state_2015, forcing held at the climatological
+%                        snapshot throughout, calving front frozen (ismovingfront=0)
 %                        (loadonly=0 submit, =1 gather)
 %   4  WriteISMIP6_NetCDF_test writes 4 variables to ctrl_test/ for quick
 %                        compliance checking (sftgif, iareagr, tendlibmassbfgr,
@@ -75,11 +82,18 @@ function md = proj_run_CESM_WACCM_ctrl_2015_2300(steps, loadonly)
 
     raw_ssp     = [proj_root 'raw_data/ISMIP7/AIS/' CMIP_MODEL '/' SCENARIO_SRC '/'];
     raw_hist    = [proj_root 'raw_data/ISMIP7/AIS/' CMIP_MODEL '/historical/'];
+    raw_ssp126  = [proj_root 'raw_data/ISMIP7/AIS/' CMIP_MODEL '/ssp126/'];
 
-    tf_dir      = [raw_ssp  'ocean/tf/v3/'];
-    smb_ssp_dir = [raw_ssp  'SDBN1-2000m/acabf/v2/'];
-    grad_ssp_dir= [raw_ssp  'SDBN1-2000m/dacabfdz/v2/'];
-    smb_hist_dir= [raw_hist 'SDBN1-2000m/acabf/v2/'];
+    tf_dir      = [raw_ssp  'ocean/tf/v3/'];   % unused now that ProjTF reads a climatology; kept for reference
+    smb_ssp_dir = [raw_ssp  'SDBN1-2000m/acabf/v2/'];      % unused, see above
+    grad_ssp_dir= [raw_ssp  'SDBN1-2000m/dacabfdz/v2/'];   % unused, see above
+
+    tf_hist_dir     = [raw_hist   'ocean/tf/v3/'];
+    tf_ssp126_dir   = [raw_ssp126 'ocean/tf/v3/'];
+    smb_hist_dir    = [raw_hist   'SDBN1-2000m/acabf/v2/'];
+    smb_ssp126_dir  = [raw_ssp126 'SDBN1-2000m/acabf/v2/'];
+    grad_hist_dir   = [raw_hist   'SDBN1-2000m/dacabfdz/v2/'];
+    grad_ssp126_dir = [raw_ssp126 'SDBN1-2000m/dacabfdz/v2/'];
 
     preproc_ocean      = [proj_root 'preprocessed_data/Ocean/'];
     preproc_hist_atmo  = [proj_root 'preprocessed_data/Atmosphere/Hist/'];
@@ -88,7 +102,14 @@ function md = proj_run_CESM_WACCM_ctrl_2015_2300(steps, loadonly)
     preproc_proj_atmo  = [proj_root 'preprocessed_data/Atmosphere/Ctrl/' CMIP_MODEL '/' EXP_LABEL '/'];
 
     % ------------------------------------------------------------------ time
-    fixed_year  = 2015;   % the single forcing year held constant throughout
+    % ISMIP7 ctrl-run protocol: "The climatology (jan 2000-dec 2029) is
+    % created using a combination of the historical and the SSP126
+    % simulations." historical covers 2000-2014, ssp126 covers 2015-2029.
+    clim_start_year = 2000;
+    clim_end_year   = 2029;
+    fixed_year  = 2015;   % nominal single-snapshot year tag used for the
+                          % saved climatology .mat / spclevelset (held
+                          % constant throughout via interp_forcing=0 below)
     start_year  = 2015;
     end_year    = 2300;   % final snapshot lands at t=end_year+1=2301 → nominal
                           % year 2300 (matches the transient ssp585 run's duration)
@@ -108,60 +129,100 @@ function md = proj_run_CESM_WACCM_ctrl_2015_2300(steps, loadonly)
 
     % ================================================================= Step 1
     if perform(org, 'ProjTF') % {{{
-        % Build a SINGLE 2015 TF snapshot (not a full time series) -- this is
-        % the control run's whole ocean forcing; interp_forcing=0 holds it
-        % constant for the entire 2015-2300 run. Only the decade chunk that
-        % actually contains 2015 is read (2015-2024), not the full series.
+        % Build a 2000-2029 CLIMATOLOGICAL MEAN TF snapshot (not a single
+        % year) -- combining historical (2000-2014) and ssp126 (2015-2029)
+        % annual TF fields, per the ISMIP7 ctrl-run protocol. This is the
+        % control run's whole ocean forcing; interp_forcing=0 (set in step
+        % 3) holds this one climatological snapshot constant for the
+        % entire 2015-2300 run.
+        %
+        % Per-year values are interpolated to the mesh and summed BEFORE
+        % averaging/clamping (not clamped-then-averaged): the mean of
+        % non-negative values is itself non-negative, so clamping the
+        % final mean is equivalent to clamping each year first wherever
+        % all years are already non-negative, and is the more defensible
+        % choice where an individual year dips slightly negative in a cold
+        % cavity (that's a real signal in that year; what matters for
+        % ISSM's >=0 constraint is the climatological forcing actually
+        % used, not every contributing year individually).
         md = loadmodel(inputmodel_2015);
 
         if ~exist(preproc_proj_ocean, 'dir'), mkdir(preproc_proj_ocean); end
 
-        tf_files = dir([tf_dir 'tf_AIS_*.nc']);
-        tf_files = sort({tf_files.name});
+        clim_years = clim_start_year:clim_end_year;
+        z_data  = [];
+        nDepths = 0;
+        tf_sum_mesh = [];
 
-        fpath = '';
-        for fi = 1:length(tf_files)
-            [~, fname, ~] = fileparts(tf_files{fi});
-            parts  = strsplit(fname, '_');
-            decade = strsplit(parts{end}, '-');
-            yr0 = str2double(decade{1}); yr1 = str2double(decade{2});
-            if fixed_year >= yr0 && fixed_year <= yr1
-                fpath = [tf_dir tf_files{fi}];
-                ti    = fixed_year - yr0 + 1;
-                break;
+        for yr = clim_years
+            if yr <= 2014
+                yr_dir = tf_hist_dir;
+            else
+                yr_dir = tf_ssp126_dir;
             end
+
+            tf_files = dir([yr_dir 'tf_AIS_*.nc']);
+            tf_files = sort({tf_files.name});
+
+            fpath = ''; ti = 0;
+            for fi = 1:length(tf_files)
+                [~, fname, ~] = fileparts(tf_files{fi});
+                parts  = strsplit(fname, '_');
+                decade = strsplit(parts{end}, '-');
+                yr0 = str2double(decade{1}); yr1 = str2double(decade{2});
+                if yr >= yr0 && yr <= yr1
+                    fpath = [yr_dir tf_files{fi}];
+                    ti    = yr - yr0 + 1;
+                    break;
+                end
+            end
+            if isempty(fpath)
+                error('No TF file found containing year %d.', yr);
+            end
+
+            if isempty(z_data)
+                z_data  = double(ncread(fpath, 'z'));
+                nDepths = length(z_data);
+                tf_sum_mesh = zeros(md.mesh.numberofvertices, nDepths);
+            end
+
+            x_n = double(ncread(fpath, 'x'));
+            y_n = double(ncread(fpath, 'y'));
+            tf_data_all = double(ncread(fpath, 'tf', [1 1 1 ti], [Inf Inf Inf 1]));  % [x,y,depth]
+
+            for i = 1:nDepths
+                tf_sum_mesh(:,i) = tf_sum_mesh(:,i) + ...
+                    InterpFromGridToMesh(x_n, y_n, tf_data_all(:,:,i)', md.mesh.x, md.mesh.y, 0);
+            end
+            fprintf('  TF year %d read (%s)\n', yr, fpath);
         end
-        if isempty(fpath)
-            error('No TF file found containing year %d.', fixed_year);
-        end
 
-        z_data  = double(ncread(fpath, 'z'));
-        nDepths = length(z_data);
-
-        x_n = double(ncread(fpath, 'x'));
-        y_n = double(ncread(fpath, 'y'));
-
-        tf_data_all = double(ncread(fpath, 'tf', [1 1 1 ti], [Inf Inf Inf 1]));  % [x,y,depth]
+        tf_clim_mesh = tf_sum_mesh / length(clim_years);
 
         tf_proj = cell(1, 1, nDepths);
         for i = 1:nDepths
-            v = InterpFromGridToMesh(x_n, y_n, tf_data_all(:,:,i)', md.mesh.x, md.mesh.y, 0);
-            tf_proj{1,1,i} = [max(v, 0) ; fixed_year];
+            tf_proj{1,1,i} = [max(tf_clim_mesh(:,i), 0) ; fixed_year];
         end
 
         save([preproc_proj_ocean 'CESM_WACCM_TF_' EXP_LABEL '_' ...
               num2str(start_year) '_' num2str(end_year) '.mat'], ...
              'tf_proj', 'z_data', '-v7.3');
-        fprintf('Saved TF: single %d snapshot, %d depths.\n', fixed_year, nDepths);
+        fprintf('Saved TF: %d-%d climatological mean (%d years), %d depths.\n', ...
+                clim_start_year, clim_end_year, length(clim_years), nDepths);
     end % }}}
 
     % ================================================================= Step 2
     if perform(org, 'ProjSMB') % {{{
-        % Build a SINGLE 2015 SMB+gradient snapshot -- the control run's
-        % whole SMB forcing; interp_forcing=0 holds it constant for the
-        % entire 2015-2300 run.
-        % Convention (identical to hist_run_tune_CESM_WACCM step 2):
-        %   smb_yr = smb_racmo + (cesm_yr_ssp - cesm_hist_mean_1995_2014)
+        % Build a 2000-2029 CLIMATOLOGICAL MEAN SMB+gradient snapshot (not
+        % a single year) -- combining historical (2000-2014) and ssp126
+        % (2015-2029) annual fields, per the ISMIP7 ctrl-run protocol.
+        % This is the control run's whole SMB forcing; interp_forcing=0
+        % (set in step 3) holds this one climatological snapshot constant
+        % for the entire 2015-2300 run.
+        % Convention (same anomaly method as hist_run_tune_CESM_WACCM /
+        % the transient ssp585 script, using the 30-yr mean CESM anomaly
+        % instead of a single year's):
+        %   smb_clim = smb_racmo + (cesm_clim_2000_2029 - cesm_hist_mean_1995_2014)
         % Units: mm w.e. yr-1 for smbref; mm w.e. yr-1 m-1 for b_pos/b_neg.
         md = loadmodel(inputmodel_2015);
 
@@ -178,28 +239,53 @@ function md = proj_run_CESM_WACCM_ctrl_2015_2300(steps, loadonly)
               num2str(hist_smb_yr0) '_' num2str(hist_smb_yr1) '.mat'], 'p_vert');
         cesm_hist_mean = cesm_mean;
 
-        nc_smb  = [smb_ssp_dir sprintf('acabf_AIS_%s_%s_SDBN1-2000m_v2_%d.nc', CMIP_MODEL, SCENARIO_SRC, fixed_year)];
-        nc_grad = [grad_ssp_dir sprintf('dacabfdz_AIS_%s_%s_SDBN1-2000m_v2_%d.nc', CMIP_MODEL, SCENARIO_SRC, fixed_year)];
+        clim_years = clim_start_year:clim_end_year;
+        cesm_sum  = zeros(md.mesh.numberofvertices, 1);
+        bgrad_sum = zeros(md.mesh.numberofvertices, 1);
 
-        % Cheap check: an empty placeholder file has 'time' UNLIMITED with 0
-        % records currently (seen for some later years in this series --
-        % confirm 2015 itself is real before reading the full spatial field).
-        if isempty(ncread(nc_smb, 'time')) || isempty(ncread(nc_grad, 'time'))
-            error('acabf/dacabfdz for %d has no data (empty placeholder).', fixed_year);
+        for yr = clim_years
+            if yr <= 2014
+                yr_smb_dir  = smb_hist_dir;
+                yr_grad_dir = grad_hist_dir;
+                yr_scenario = 'historical';
+            else
+                yr_smb_dir  = smb_ssp126_dir;
+                yr_grad_dir = grad_ssp126_dir;
+                yr_scenario = 'ssp126';
+            end
+
+            nc_smb  = [yr_smb_dir  sprintf('acabf_AIS_%s_%s_SDBN1-2000m_v2_%d.nc', CMIP_MODEL, yr_scenario, yr)];
+            nc_grad = [yr_grad_dir sprintf('dacabfdz_AIS_%s_%s_SDBN1-2000m_v2_%d.nc', CMIP_MODEL, yr_scenario, yr)];
+
+            % Cheap check: an empty placeholder file has 'time' UNLIMITED
+            % with 0 records currently (seen for some years in this
+            % series -- confirm real data before reading the full field).
+            if isempty(ncread(nc_smb, 'time')) || isempty(ncread(nc_grad, 'time'))
+                error('acabf/dacabfdz for %d (%s) has no data (empty placeholder).', yr, yr_scenario);
+            end
+
+            x_s = double(ncread(nc_smb, 'x'));
+            y_s = double(ncread(nc_smb, 'y'));
+
+            am      = mean(double(ncread(nc_smb, 'acabf')), 3);
+            cesm_yr = InterpFromGridToMesh(x_s, y_s, am', md.mesh.x, md.mesh.y, 0) * sec_to_year;
+
+            g_raw = squeeze(double(ncread(nc_grad, 'dacabfdz')));
+            if ndims(g_raw) == 3
+                g_raw = mean(g_raw, 3);
+            end
+            bgrad_yr = InterpFromGridToMesh(x_s, y_s, g_raw', md.mesh.x, md.mesh.y, 0) * sec_to_year;
+
+            cesm_sum  = cesm_sum  + cesm_yr;
+            bgrad_sum = bgrad_sum + bgrad_yr;
+            fprintf('  SMB year %d (%s) read\n', yr, yr_scenario);
         end
 
-        x_s = double(ncread(nc_smb, 'x'));
-        y_s = double(ncread(nc_smb, 'y'));
+        cesm_clim  = cesm_sum  / length(clim_years);
+        bgrad_clim = bgrad_sum / length(clim_years);
 
-        am      = mean(double(ncread(nc_smb, 'acabf')), 3);
-        cesm_yr = InterpFromGridToMesh(x_s, y_s, am', md.mesh.x, md.mesh.y, 0) * sec_to_year;
-        smb_col = p_vert .* smb_racmo + (cesm_yr - cesm_hist_mean);
-
-        g_raw = squeeze(double(ncread(nc_grad, 'dacabfdz')));
-        if ndims(g_raw) == 3
-            g_raw = mean(g_raw, 3);
-        end
-        bgrad_col = InterpFromGridToMesh(x_s, y_s, g_raw', md.mesh.x, md.mesh.y, 0) * sec_to_year;
+        smb_col   = p_vert .* smb_racmo + (cesm_clim - cesm_hist_mean);
+        bgrad_col = bgrad_clim;
 
         smb_forcing   = [smb_col   ; fixed_year];
         bgrad_forcing = [bgrad_col ; fixed_year];
@@ -207,7 +293,8 @@ function md = proj_run_CESM_WACCM_ctrl_2015_2300(steps, loadonly)
         save([preproc_proj_atmo 'CESM_WACCM_SMB_' EXP_LABEL '_' ...
               num2str(start_year) '_' num2str(end_year) '.mat'], ...
              'smb_forcing', 'bgrad_forcing', '-v7.3');
-        fprintf('Saved SMB forcing: single %d snapshot.\n', fixed_year);
+        fprintf('Saved SMB forcing: %d-%d climatological mean (%d years).\n', ...
+                clim_start_year, clim_end_year, length(clim_years));
     end % }}}
 
     % ================================================================= Step 3
