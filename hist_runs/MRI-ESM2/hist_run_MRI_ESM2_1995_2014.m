@@ -281,7 +281,7 @@ function md = hist_run_MRI_ESM2_1995_2014(steps, loadonly)
         meta.forcing_member_id  = 'f001';
         meta.ISM_member_id      = 'm001';
 
-        outdir = [proj_root 'postprocessed_data/MRI-ESM2/historical/'];
+        outdir = [proj_root 'postprocessed_data/MRI-ESM2-0/historical/'];
         if ~exist(outdir, 'dir'), mkdir(outdir); end
 
         [cfflux_tot, glflux_tot] = write_ismip7_2d_historical(md, outdir, meta);
