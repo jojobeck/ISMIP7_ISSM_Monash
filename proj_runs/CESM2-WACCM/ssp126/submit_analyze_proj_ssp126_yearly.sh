@@ -48,7 +48,7 @@ module load matlab_licence/monash
 # ---- steps: [1]=VAF check only, [2]=NetCDF write only, [3]=calving
 # front plot only, [1 2 3]=all (default) -----
 # steps=[1, 3]
-steps=[1]
+steps=[2]
 
 matlab -nodisplay -nosplash -softwareopengl -r "addpath('$ISSM_DIR/src/m/dev'); devpath; \
   addpath('$ISSM_DIR/lib'); \

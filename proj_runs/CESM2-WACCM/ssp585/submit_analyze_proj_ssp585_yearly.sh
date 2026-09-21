@@ -42,8 +42,8 @@ module load petsc/3.17.4
 module load matlab/R2021b
 module load matlab_licence/monash
 
-# ---- steps: [1]=VAF check only, [2]=NetCDF write only, [1 2]=both -----
-steps=[2]
+# ---- steps: [1]=VAF check only, [2]=NetCDF write only, [1,2]=both -----
+steps=[1]
 
 matlab -nodisplay -nosplash -softwareopengl -r "addpath('$ISSM_DIR/src/m/dev'); devpath; \
   addpath('$ISSM_DIR/lib'); \
