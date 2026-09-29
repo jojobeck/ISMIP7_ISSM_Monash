@@ -1,0 +1,23 @@
+Shelf BMB per IMBIE2 basin — HistRun_CorrectSMB (mean 1995-2017) vs Paolo/Adusumilli
+Model: area-weighted mean melt rate per basin (kg/m2/a)
+All floating shelves: RMSE=2188.4 kg/m2/a   bias=+220.2 kg/m2/a
+
+Basin   Mod(kg/m2/a)  Obs(kg/m2/a)        Uncert    in_obs
+0              601.7         320.0         417.3         1
+1             2744.7         605.2         834.9         0
+2              460.0         366.8         326.7         1
+3             2185.4        1072.7         821.4         0
+4             8874.7        5914.4         895.2         0
+5             1547.3        1653.6         680.3         1
+6             2593.7        1126.5         567.8         0
+7              150.6          81.3         168.6         1
+8             4178.2        3194.4         618.9         0
+9            10310.2        9277.6         721.6         0
+10            1859.1        1891.4         662.5         1
+11            3867.5        2000.9        1029.0         0
+12             657.7         476.1        1041.3         1
+13             930.5         644.0         632.0         1
+14             145.0         128.4         180.1         1
+15             494.0         296.4         355.2         1
+
+  9 of 16 basins are within the observational uncertainty; 7 are outside.
