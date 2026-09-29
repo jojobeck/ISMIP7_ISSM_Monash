@@ -135,8 +135,8 @@ function md = proj_run_MRI_ESM2_ssp585_2015_2300_yearly(steps, start_year, end_y
     tf_dir      = [raw_ssp  'ocean/tf/v3/'];
     smb_ssp_dir = [raw_ssp  'SDBN1-2000m/acabf/v1/'];
     grad_ssp_dir= [raw_ssp  'SDBN1-2000m/dacabfdz/v1/'];
-    collapse_nc_v1 = [raw_ssp 'fracture/v1/ice_shelf_collapse_mask_' ...
-                      lower(strrep(CMIP_MODEL,'-','')) '_' SCENARIO '_ismip7_8km-v1.nc'];
+    collapse_nc_v2 = [raw_ssp 'fracture/v2/ice_shelf_collapse_mask_' ...
+                      lower(strrep(CMIP_MODEL,'-','')) '_' SCENARIO '_ismip7_8km-v2.nc'];
     sec_to_year = 31556926;   % consistent with hist_run_tune_MRI_ESM2
 
     preproc_ocean      = [proj_root 'preprocessed_data/Ocean/'];
@@ -305,17 +305,17 @@ function md = proj_run_MRI_ESM2_ssp585_2015_2300_yearly(steps, start_year, end_y
     end % }}}
 
     % ================================================================= Step 3
-    if perform(org, 'ProjLevelsetV1') % {{{
+    if perform(org, 'ProjLevelsetV2') % {{{
         % Same build_spclevelset() logic already written and verified in
         % build_and_compare_levelset_v2_ssp585.m, copied here (see that
         % helper function below) so this script needs nothing external.
         % Produces the SAME output file that script's own step 1 produces
         % -- interchangeable, not a second copy.
-        proj_spclevelset_v1 = build_spclevelset(inputmodel_2015, collapse_nc_v1, build_start_year, build_end_year);
-        v1_fname = [preproc_proj_ocean 'MRI_ESM2_levelset_v1_' SCENARIO '_' ...
+        proj_spclevelset_v2 = build_spclevelset(inputmodel_2015, collapse_nc_v2, build_start_year, build_end_year);
+        v2_fname = [preproc_proj_ocean 'MRI_ESM2_levelset_v2_' SCENARIO '_' ...
                    num2str(build_start_year) '_' num2str(build_end_year) '.mat'];
-        save(v1_fname, 'proj_spclevelset_v1', '-v7.3');
-        fprintf('Saved: %s\n', v1_fname);
+        save(v2_fname, 'proj_spclevelset_v2', '-v7.3');
+        fprintf('Saved: %s\n', v2_fname);
     end % }}}
 
     % ================================================================= Step 4
@@ -354,8 +354,8 @@ function md = proj_run_MRI_ESM2_ssp585_2015_2300_yearly(steps, start_year, end_y
         % v2 levelset (step 3's output) -- aliased to proj_spclevelset so
         % the rest of this loop's logic (unchanged from before) doesn't
         % need to reference a different variable name.
-        loaded_lset = load([preproc_proj_ocean 'MRI_ESM2_levelset_v1_' SCENARIO '_2015_2300.mat']);   % -> proj_spclevelset_v2
-        proj_spclevelset = loaded_lset.proj_spclevelset_v1;
+        loaded_lset = load([preproc_proj_ocean 'MRI_ESM2_levelset_v2_' SCENARIO '_2015_2300.mat']);   % -> proj_spclevelset_v2
+        proj_spclevelset = loaded_lset.proj_spclevelset_v2;
         clear loaded_lset;
 
         % href must be the 1995 relaxed surface (same for every year --
