@@ -251,6 +251,7 @@ function md = hist_run_CESM_WACCM_1995_2014(steps, loadonly)
         md.transient.ismovingfront = 1;
         load([preproc_front 'Greene_spclevelset_' num2str(forcing_start_year) '_' num2str(forcing_end_year) '.mat']);
         md.levelset.spclevelset = greene_spclevelset;
+        md.levelset.migration_max  = 2863.78;   % m/yr -- see Relaxed_CESM_WACCM's own comment above (same cap as the projection, added 2026-10-01 for consistency)
 
         md.miscellaneous.name = ['HistRun_CESM_WACCM_' num2str(start_year) '_' num2str(end_year)];
         clustername = 'gadi';

@@ -224,8 +224,57 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
     % ================================================================= Step 3
     if perform(org, 'Greene_levelset') % {{{
         % icemask_greene: int8, 500m grid, (greene_mask_time=24, y=12161, x=12161)
-        %   1 = ice -> levelset -1  |  0 = ocean -> levelset +1  |  -128 = fill -> NaN
+        %   1 = ice  |  0 = ocean  |  -128 = fill (missing)
         % Available from 1997-10; 1997 snapshot used for 1995-1996.
+        %
+        % UPDATED (2026-09-30): Greene is now used as a one-way RETREAT-
+        % ONLY ratchet, matching the projection's own build_spclevelset
+        % mechanism (proj_runs/CESM2-WACCM/ssp585/proj_run_CESM_WACCM_
+        % ssp585_2015_2300_yearly.m step 3) exactly, instead of the
+        % previous dense every-year -1/+1 masking. The previous version
+        % set spclevelset=-1 ("force keep ice") wherever Greene showed ice
+        % in a given year's snapshot -- applied to ~55,000 vertices every
+        % year, i.e. near-continuous data assimilation of almost the
+        % entire ice-covered domain, not just a front boundary condition.
+        % That produced a large, abrupt "model shock" when the projection
+        % took over at 2015 (no further observations to assimilate, so
+        % the constraint had to be dropped essentially all at once) --
+        % confirmed via analysis/analyze_SLR_all_experiments.m and
+        % discussed at length in the accompanying analysis conversation.
+        % The OLD version of this step is archived at old_scripts/
+        % hist_run_tune_CESM_WACCM_preGreeneRatchetFix.m; the OLD
+        % Greene_spclevelset_1995_2020.mat is archived alongside the
+        % current one (_preGreeneRatchetFix suffix, same directory); this
+        % model's own init/Models/ and the production hist_runs/
+        % CESM2-WACCM/Models/ were both archived (_old_preGreeneRatchetFix
+        % suffix) and recreated empty before this fix, since every
+        % downstream step needs rebuilding from here.
+        %
+        % NEW approach: spclevelset is NEVER set to -1 here at all. A
+        % vertex is forced to +1 ("no ice") only once Greene's own record
+        % confirms, in some model year, that it has become ocean -- and
+        % once forced, it STAYS forced in every subsequent year
+        % (collapsed_so_far is a cumulative OR, never un-flagged),
+        % exactly like build_spclevelset's own collapsed_so_far. Every
+        % vertex Greene never confirms as ocean stays NaN (unconstrained)
+        % for the whole historical run -- the model's own dynamics
+        % (velocity, SMB, BMB) determine whether it keeps or loses ice,
+        % never an explicit "keep ice" forcing. This makes the historical
+        % run's own calving mechanism structurally IDENTICAL to the
+        % projection's (mostly free, cumulative retreat-only forcing), so
+        % there is no methodological discontinuity at the historical/
+        % projection boundary -- removing the need for the projection's
+        % own 20-year taper for any run built from this corrected
+        % historical state (the taper itself is left in place there as a
+        % harmless no-op safeguard: do_taper only ever holds vertices that
+        % are real ice in the 2015 state, and with this fix that set
+        % should already closely match what Greene itself would have
+        % held, so the taper should have little left to do).
+        %
+        % The old "advance suppression" block (which prevented spurious
+        % Greene ice-advance signals from forcing spclevelset=-1 into a
+        % region the model never had ice) is removed entirely -- it is
+        % structurally unnecessary now, since -1 is never assigned at all.
 
         md     = loadmodel(inputmodel_relax);
         nVerts = md.mesh.numberofvertices;
@@ -239,6 +288,8 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
         model_years       = start_year : end_year;
         spclevelset_mat   = NaN(nVerts, length(model_years));
 
+        collapsed_so_far = (md.mask.ice_levelset > 0);   % seed: no ice at the model's own true initial (relaxed) state
+
         for k = 1:length(model_years)
             yr = model_years(k);
             [~, gi] = min(abs(greene_yrs - yr));
@@ -247,30 +298,29 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
             raw_flip = flipud(raw');       % (y_asc, x)
             y_asc    = flipud(y_g);
 
-            lset = NaN(size(raw_flip));
-            lset(raw_flip == 1) = -1;     % ice
-            lset(raw_flip == 0) =  1;     % ocean
+            % ocean_flag: +1 where Greene confirms ocean this year, NaN
+            % elsewhere (ice or fill) -- never carries a -1 "ice" value
+            % through the interpolation at all.
+            ocean_flag = NaN(size(raw_flip));
+            ocean_flag(raw_flip == 0) = 1;
 
-            v = InterpFromGridToMesh(x_g, y_asc, lset, md.mesh.x, md.mesh.y, NaN);
-            spclevelset_mat(:, k) = v;
-            fprintf('  Greene levelset year %d -> snapshot %.1f\n', yr, greene_yrs(gi));
+            v = InterpFromGridToMesh(x_g, y_asc, ocean_flag, md.mesh.x, md.mesh.y, NaN);
+            retreated_this_yr = (v >= 0.5);
+            newly_forced       = retreated_this_yr & ~collapsed_so_far;
+            collapsed_so_far   = collapsed_so_far | retreated_this_yr;   % monotonic, never un-flags
+
+            lset = NaN(nVerts, 1);
+            lset(collapsed_so_far) = 1;
+            spclevelset_mat(:, k) = lset;
+
+            fprintf('  Greene levelset year %d -> snapshot %.1f: %d newly retreated, %d total forced.\n', ...
+                    yr, greene_yrs(gi), nnz(newly_forced), nnz(collapsed_so_far));
         end
-
-        % Only allow Greene to prescribe ice-front RETREAT relative to the
-        % model's initial md.mask.ice_levelset. At vertices that start with
-        % no ice (ice_levelset > 0), some Greene years spuriously show ice
-        % (advance) -- do not apply those; leave unconstrained (NaN) instead
-        % of forcing ice into a region the model never had ice.
-        no_ice0      = md.mask.ice_levelset > 0;                  % nVerts x 1
-        advance_mask = repmat(no_ice0, 1, length(model_years)) & (spclevelset_mat < 0);
-        fprintf('  Suppressing %d/%d Greene advance entries (no ice -> ice) relative to initial mask.\n', ...
-                nnz(advance_mask), numel(advance_mask));
-        spclevelset_mat(advance_mask) = NaN;
 
         greene_spclevelset = [spclevelset_mat ; model_years];
         save([preproc_front 'Greene_spclevelset_' num2str(start_year) '_' num2str(end_year) '.mat'], ...
              'greene_spclevelset', '-v7.3');
-        fprintf('Saved Greene levelset mat.\n');
+        fprintf('Saved Greene levelset mat (retreat-only ratchet, no -1 anywhere).\n');
     end % }}}
 
     % ================================================================= Step 4
@@ -357,6 +407,7 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
         md.calving.calvingrate         = zeros(md.mesh.numberofvertices,1);
         md.frontalforcings.meltingrate = zeros(md.mesh.numberofvertices,1);
         md.transient.ismovingfront = 1;
+        md.levelset.migration_max  = 2863.78;   % m/yr -- matches the projection's own cap (proj_run_CESM_WACCM_ssp585_2015_2300_yearly.m); ISSM's own default (1e12 m/yr) is effectively unconstrained, which barely mattered under the old dense Greene constraint but matters a great deal now that most of the domain is free (NaN) under the retreat-only ratchet -- added 2026-10-01 for consistency across the historical/projection boundary.
         load([preproc_front 'Greene_spclevelset_' num2str(start_year) '_' num2str(end_year) '.mat']);
         md.levelset.spclevelset = greene_spclevelset;
 
@@ -524,6 +575,7 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
         md.calving.calvingrate         = zeros(md.mesh.numberofvertices,1);
         md.frontalforcings.meltingrate = zeros(md.mesh.numberofvertices,1);
         md.transient.ismovingfront =1;
+        md.levelset.migration_max  = 2863.78;   % m/yr -- see Relaxed_CESM_WACCM's own comment above (same cap as the projection, added 2026-10-01 for consistency)
         load([preproc_front 'Greene_spclevelset_' num2str(start_year) '_' num2str(end_year) '.mat']);
         md.levelset.spclevelset = greene_spclevelset;
 
@@ -611,9 +663,23 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
         fig_h_cf = 800;
         fig_w_cf = round(fig_h_cf * diff(xl_cf) / diff(yl_cf));
 
-        load([preproc_front 'Greene_spclevelset_' num2str(start_year) '_' num2str(end_year) '.mat']);
-        greene_model_yrs = greene_spclevelset(end, :);      % 1995:2020
-        greene_lset_mat  = greene_spclevelset(1:end-1, :);  % nVerts x nyears
+        % --- Greene comparison front, rebuilt directly from the raw NetCDF ---
+        % greene_spclevelset (the retreat-only ratchet actually used in the
+        % solve) only ever contains NaN/+1 now -- it never goes negative,
+        % so it has no zero-crossing for isoline() to find (this is what
+        % broke this plot after the Greene_levelset redesign: the OLD code
+        % here loaded that file and called isoline() on it directly,
+        % assuming it was still a full -1/+1 ice/ocean classification,
+        % which it no longer is). For VISUALIZATION ONLY here, rebuild a
+        % true per-year ice/ocean classification (-1 ice / +1 ocean)
+        % directly from the raw Greene satellite data, exactly like the
+        % OLD (pre-ratchet) Greene_levelset step used to -- this is purely
+        % a comparison line on this plot, not used anywhere in the actual
+        % solve (the solve still uses the retreat-only ratchet as intended).
+        x_g_cf = double(ncread(mipkit_nc, 'x'));
+        y_g_cf = double(ncread(mipkit_nc, 'y'));
+        time_raw_cf = double(ncread(mipkit_nc, 'greene_mask_time'));
+        greene_yrs_cf = 1900 + time_raw_cf / 365.25;
 
         cf_years = unique([start_year+1, 2000, 2005, 2010, 2015, end_year]);
         n_cf     = length(cf_years);
@@ -630,15 +696,29 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
             hi_mod_all{k} = isoline(md, md.results.TransientSolution(ti).MaskIceLevelset, ...
                                      'value', 0, 'output', 'matrix');
 
-            [~, gk] = min(abs(greene_model_yrs - yr));
-            hi_gre_all{k} = isoline(md, double(greene_lset_mat(:, gk)), ...
-                                     'value', 0, 'output', 'matrix');
+            [~, gi] = min(abs(greene_yrs_cf - yr));
+            raw_cf      = double(ncread(mipkit_nc, 'icemask_greene', [1 1 gi], [Inf Inf 1]));
+            raw_flip_cf = flipud(raw_cf');
+            y_asc_cf    = flipud(y_g_cf);
+            lset_g      = NaN(size(raw_flip_cf));
+            lset_g(raw_flip_cf == 1) = -1;   % ice
+            lset_g(raw_flip_cf == 0) =  1;   % ocean
+            v_g = InterpFromGridToMesh(x_g_cf, y_asc_cf, lset_g, md.mesh.x, md.mesh.y, NaN);
+            hi_gre_all{k} = isoline(md, v_g, 'value', 0, 'output', 'matrix');
         end
 
         % ---- Figure 2a: full Antarctic Ice Sheet ----
         figure('visible','off','Position',[0 0 900 750]);
-        plotmodel(md, 'figure', gcf, 'visible', 'off', 'data', md.mask.ice_levelset, ...
-                  'colormap', gray, 'caxis', [-1 1], 'title', '', 'colorbar', 0);
+        % No mesh-wide background render at all (neither plotmodel() nor
+        % patch() over the full mesh) -- both were suspected in the
+        % segfault seen in SubmitInit2.errlog (2026-10-01, "Caught signal
+        % 11 (Segmentation fault)" inside libjvm.so); patch() alone did
+        % not resolve it. isoline() + plot() (already used for every front
+        % line below) is lightweight (a handful of line segments, not a
+        % full mesh patch) and already proven to work on this compute
+        % node, so it's the only rendering path used here now -- no
+        % shaded background, just the front-line isolines themselves for
+        % spatial context.
         hold on;
         for k = 1:n_cf
             yr  = cf_years(k);
@@ -649,6 +729,7 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
                  'DisplayName', sprintf('%.0f Greene', yr));
         end
         axis equal tight off;
+        set(gca, 'Color', [0.95 0.95 0.95]);   % light gray axes background for context, no mesh render needed
         legend('Location', 'southeast', 'FontSize', 8);
         title(sprintf('Calving front %.0f–%.0f  |  Antarctica', ...
                       cf_years(1), cf_years(end)));
@@ -658,10 +739,12 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
 
         % ---- Figure 2b: PIG & Thwaites zoom ----
         figure('visible','off','Position',[0 0 fig_w_cf fig_h_cf]);
-        plotmodel(md, 'figure', gcf, 'visible', 'off', 'data', md.mask.ice_levelset, ...
-                  'colormap', gray, 'caxis', [-1 1], ...
-                  'xlim', xl_cf, 'ylim', yl_cf, 'title', '', 'colorbar', 0);
+        % No mesh-wide background render (neither plotmodel() nor patch())
+        % -- see the full-AIS figure's own comment above for why. Just the
+        % isolines below for spatial context, with xlim/ylim applied
+        % explicitly after plotting.
         hold on;
+        set(gca, 'Color', [0.95 0.95 0.95]);   % light gray axes background for context, no mesh render needed
         for k = 1:n_cf
             yr  = cf_years(k);
             col = cmap_cf(k, :);
@@ -687,10 +770,12 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
         hi_ocean0 = isoline(md, md.mask.ocean_levelset, 'value', 0, 'output', 'matrix');
 
         figure('visible','off','Position',[0 0 fig_w_cf fig_h_cf]);
-        plotmodel(md, 'figure', gcf, 'visible', 'off', 'data', md.mask.ice_levelset, ...
-                  'colormap', gray, 'caxis', [-1 1], ...
-                  'xlim', xl_cf, 'ylim', yl_cf, 'title', '', 'colorbar', 0);
+        % No mesh-wide background render (neither plotmodel() nor patch())
+        % -- see the full-AIS figure's own comment above for why. Just the
+        % isolines below for spatial context, with xlim/ylim applied
+        % explicitly after plotting.
         hold on;
+        set(gca, 'Color', [0.95 0.95 0.95]);   % light gray axes background for context, no mesh render needed
         plot(hi_ice0(:,1), hi_ice0(:,2), '-', 'Color', [0 0.4470 0.7410], 'LineWidth', 2, ...
              'DisplayName', 'ice\_levelset (ice front)');
         plot(hi_ocean0(:,1), hi_ocean0(:,2), '-', 'Color', [0.8500 0.3250 0.0980], 'LineWidth', 2, ...
@@ -749,14 +834,127 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
 
     end % }}}
 
-
     % ================================================================= Step 8
+    if perform(org, 'HistRun_CalvingFrontPlot') % {{{
+        % Calving-front evolution plot, modeled on the projection's own
+        % CalvingFrontEvolution_yearly step (proj_runs/CESM2-WACCM/ssp585/
+        % analyze_proj_ssp585_yearly.m) -- two figures (full AIS, PIG/
+        % Thwaites zoom), the model's own ice-front isoline colour-coded
+        % by year every ~10 years, overlaid with a Greene comparison front
+        % for the same years (dashed, same colour). Simplified+re-fixed
+        % 2026-10-01: originally a more elaborate 3-figure version
+        % (+ a mask-consistency check, dropped here), then temporarily
+        % stripped to model-only isolines after the Greene comparison
+        % broke (its own in-loop raw-NetCDF reconstruction was suspected
+        % in a segfault); the Greene line is restored here using the
+        % ARCHIVED pre-ratchet Greene_spclevelset file instead (see its
+        % own load comment below) -- faster (no raw NetCDF re-read) and
+        % avoids whatever the original in-loop reconstruction was doing.
+        %
+        % No shaded mesh background (neither plotmodel() nor patch() over
+        % the full mesh) -- both were confirmed segfaulting MATLAB's
+        % graphics/JVM stack on this headless compute node (SubmitInit2.
+        % errlog, 2026-10-01, "Caught signal 11 (Segmentation fault)"
+        % inside libjvm.so). isoline()+plot() only -- lightweight (a
+        % handful of line segments, not a full mesh patch) and already
+        % proven to work here.
+        md = loadmodel(org, 'HistRun');
+        if ~exist('./figures', 'dir'), mkdir('./figures'); end
+
+        nT   = length(md.results.TransientSolution);
+        time = zeros(1, nT);
+        for t = 1:nT, time(t) = md.results.TransientSolution(t).time; end
+        nearest_t = @(yr) find(abs(time - yr) == min(abs(time - yr)), 1);
+
+        cf_years = start_year:10:end_year;
+        if cf_years(end) ~= end_year
+            cf_years(end+1) = end_year;   % always include the final available year too
+        end
+        n_cf    = numel(cf_years);
+        cmap_cf = jet(n_cf);
+
+        hi_mod_all = cell(n_cf, 1);
+        for k = 1:n_cf
+            ti = nearest_t(cf_years(k));
+            hi_mod_all{k} = isoline(md, md.results.TransientSolution(ti).MaskIceLevelset, ...
+                                     'value', 0, 'output', 'matrix');
+        end
+
+        % --- Greene comparison front, from the ARCHIVED pre-ratchet file ---
+        % preprocessed_data/Ocean/Hist/Greene_spclevelset_1995_2020_
+        % preGreeneRatchetFix.mat still has the full per-year -1 (ice) /
+        % +1 (ocean) / NaN classification (archived before the retreat-
+        % only ratchet redesign -- see Greene_levelset step's own header),
+        % already interpolated onto this exact mesh (inputmodel_relax is
+        % unchanged by any of these fixes). For a pure visualisation
+        % comparison this is fine to reuse directly -- it's just Greene's
+        % own observational record, unaffected by how the solve itself
+        % now applies it -- and isoline() can be called on it directly,
+        % no raw NetCDF read/interpolation needed (unlike the live
+        % Greene_spclevelset, which only ever has +1/NaN now and has no
+        % zero-crossing at all -- see this step's git history).
+        loaded_gre = load([preproc_front 'Greene_spclevelset_' num2str(start_year) '_' num2str(end_year) '_preGreeneRatchetFix.mat']);
+        greene_model_yrs = loaded_gre.greene_spclevelset(end, :);
+        greene_lset_mat  = loaded_gre.greene_spclevelset(1:end-1, :);
+        clear loaded_gre;
+
+        hi_gre_all = cell(n_cf, 1);
+        for k = 1:n_cf
+            [~, gk] = min(abs(greene_model_yrs - cf_years(k)));
+            hi_gre_all{k} = isoline(md, double(greene_lset_mat(:, gk)), 'value', 0, 'output', 'matrix');
+        end
+
+        figure('visible', 'off', 'Position', [0 0 1000 800]);
+        hold on;
+        set(gca, 'Color', [0.95 0.95 0.95]);   % light gray axes background for context, no mesh render needed
+        for k = 1:n_cf
+            plot(hi_mod_all{k}(:,1), hi_mod_all{k}(:,2), '-', 'Color', cmap_cf(k,:), 'LineWidth', 1.5, ...
+                 'DisplayName', sprintf('%d model', cf_years(k)));
+            plot(hi_gre_all{k}(:,1), hi_gre_all{k}(:,2), '--', 'Color', cmap_cf(k,:), 'LineWidth', 1, ...
+                 'DisplayName', sprintf('%d Greene', cf_years(k)));
+        end
+        axis equal tight off;
+        legend('Location', 'eastoutside', 'FontSize', 8, 'NumColumns', 1);
+        title(sprintf('CESM2-WACCM historical -- calving front (ice-mask isoline), every 10 yr (%d-%d)', ...
+                      start_year, end_year), 'Interpreter', 'none');
+
+        figname = './figures/CalvingFront_isoline_CESM_WACCM_historical.png';
+        saveas(gcf, figname);
+        close(gcf);
+        fprintf('Saved: %s\n', figname);
+
+        % ---- Same isolines, zoomed to PIG & Thwaites -----------------
+        % Reuses hi_mod_all/hi_gre_all (already computed above).
+        xl_cf = [-1.7e6, -1.48e6];
+        yl_cf = [-4.9e5, -2e5];
+
+        figure('visible', 'off', 'Position', [0 0 800 800]);
+        hold on;
+        set(gca, 'Color', [0.95 0.95 0.95]);
+        for k = 1:n_cf
+            plot(hi_mod_all{k}(:,1), hi_mod_all{k}(:,2), '-', 'Color', cmap_cf(k,:), 'LineWidth', 1.5, ...
+                 'DisplayName', sprintf('%d model', cf_years(k)));
+            plot(hi_gre_all{k}(:,1), hi_gre_all{k}(:,2), '--', 'Color', cmap_cf(k,:), 'LineWidth', 1, ...
+                 'DisplayName', sprintf('%d Greene', cf_years(k)));
+        end
+        axis equal off;
+        xlim(xl_cf); ylim(yl_cf);
+        legend('Location', 'eastoutside', 'FontSize', 8, 'NumColumns', 1);
+        title(sprintf('CESM2-WACCM historical -- calving front, PIG & Thwaites, every 10 yr (%d-%d)', ...
+                      start_year, end_year), 'Interpreter', 'none');
+
+        figname_zoom = './figures/CalvingFront_isoline_CESM_WACCM_historical_PIGTHW.png';
+        saveas(gcf, figname_zoom);
+        close(gcf);
+        fprintf('Saved: %s\n', figname_zoom);
+    end % }}}
+
     if perform(org, 'HistRun_Assessment') % {{{
         md = loadmodel(org, 'HistRun');
         region_mask_file = [preproc_ocean 'Basins/HistRun_Regions.mat'];
         assess_vs_otosaka(md, region_mask_file, start_year, ...
             './Data/Tables/HistRun_otosaka_assessment_CESM_WACCM.csv', ...
-            './figures/HistRun_regional_mass_change.png', ...
+            './figures/HistRun_regional_mass_change_CESM_WACCM.png', ...
             'Cumulative mass change vs Otosaka et al.  (CESM2-WACCM hist+ssp126)');
     end % }}}
 
@@ -870,6 +1068,7 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
         md.calving.calvingrate         = zeros(md.mesh.numberofvertices,1);
         md.frontalforcings.meltingrate = zeros(md.mesh.numberofvertices,1);
         md.transient.ismovingfront = 1;
+        md.levelset.migration_max  = 2863.78;   % m/yr -- see Relaxed_CESM_WACCM's own comment above (same cap as the projection, added 2026-10-01 for consistency)
         load([preproc_front 'Greene_spclevelset_' num2str(start_year) '_' num2str(end_year) '.mat']);
         md.levelset.spclevelset = greene_spclevelset;
 
@@ -890,7 +1089,7 @@ function md = hist_run_tune_CESM_WACCM(steps, loadonly)
         region_mask_file = [preproc_ocean 'Basins/HistRun_Regions.mat'];
         assess_vs_otosaka(md, region_mask_file, start_year, ...
             './Data/Tables/HistRun_otosaka_assessment_CESM_WACCM_corrected.csv', ...
-            './figures/HistRun_regional_mass_change_corrected.png', ...
+            './figures/HistRun_regional_mass_change_corrected_CESM_WACCM.png', ...
             'Cumulative mass change vs Otosaka et al.  (corrected SMB, CESM2-WACCM hist+ssp126)');
     end % }}}
 

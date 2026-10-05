@@ -225,8 +225,27 @@ function md = hist_run_tune_MRI_ESM(steps, loadonly)
     % ================================================================= Step 3
     if perform(org, 'Greene_levelset') % {{{
         % icemask_greene: int8, 500m grid, (greene_mask_time=24, y=12161, x=12161)
-        %   1 = ice -> levelset -1  |  0 = ocean -> levelset +1  |  -128 = fill -> NaN
+        %   1 = ice  |  0 = ocean  |  -128 = fill (missing)
         % Available from 1997-10; 1997 snapshot used for 1995-1996.
+        %
+        % NOT ACTUALLY RUN IN PRACTICE (2026-10-01): this step's output
+        % depends only on the static Greene satellite data, the mesh, and
+        % inputmodel_relax's own initial ice_levelset -- and
+        % inputmodel_relax = './Models/AIS_ISMIP7_Relaxed.mat' is the
+        % IDENTICAL shared starting file hist_run_tune_CESM_WACCM.m's own
+        % Greene_levelset step uses. So this step's output is mathematically
+        % identical to that one's, and the file it would produce
+        % (preprocessed_data/Ocean/Hist/Greene_spclevelset_1995_2020.mat)
+        % is already built and reused directly -- no need to run this step
+        % for MRI-ESM2 separately. Kept here, updated to match CESM's own
+        % retreat-only-ratchet redesign, purely so the source code
+        % documents the correct methodology and remains runnable
+        % independently if inputmodel_relax ever becomes model-specific in
+        % the future (at which point this sharing assumption would need
+        % revisiting). See hist_run_tune_CESM_WACCM.m's own Greene_levelset
+        % step for the full rationale (same -1-elimination, same cumulative
+        % retreat-only ratchet, same reasoning about the historical-
+        % >projection "model shock" this fixes).
 
         md     = loadmodel(inputmodel_relax);
         nVerts = md.mesh.numberofvertices;
@@ -240,6 +259,8 @@ function md = hist_run_tune_MRI_ESM(steps, loadonly)
         model_years       = start_year : end_year;
         spclevelset_mat   = NaN(nVerts, length(model_years));
 
+        collapsed_so_far = (md.mask.ice_levelset > 0);   % seed: no ice at the model's own true initial (relaxed) state
+
         for k = 1:length(model_years)
             yr = model_years(k);
             [~, gi] = min(abs(greene_yrs - yr));
@@ -248,30 +269,29 @@ function md = hist_run_tune_MRI_ESM(steps, loadonly)
             raw_flip = flipud(raw');       % (y_asc, x)
             y_asc    = flipud(y_g);
 
-            lset = NaN(size(raw_flip));
-            lset(raw_flip == 1) = -1;     % ice
-            lset(raw_flip == 0) =  1;     % ocean
+            % ocean_flag: +1 where Greene confirms ocean this year, NaN
+            % elsewhere (ice or fill) -- never carries a -1 "ice" value
+            % through the interpolation at all.
+            ocean_flag = NaN(size(raw_flip));
+            ocean_flag(raw_flip == 0) = 1;
 
-            v = InterpFromGridToMesh(x_g, y_asc, lset, md.mesh.x, md.mesh.y, NaN);
-            spclevelset_mat(:, k) = v;
-            fprintf('  Greene levelset year %d -> snapshot %.1f\n', yr, greene_yrs(gi));
+            v = InterpFromGridToMesh(x_g, y_asc, ocean_flag, md.mesh.x, md.mesh.y, NaN);
+            retreated_this_yr = (v >= 0.5);
+            newly_forced       = retreated_this_yr & ~collapsed_so_far;
+            collapsed_so_far   = collapsed_so_far | retreated_this_yr;   % monotonic, never un-flags
+
+            lset = NaN(nVerts, 1);
+            lset(collapsed_so_far) = 1;
+            spclevelset_mat(:, k) = lset;
+
+            fprintf('  Greene levelset year %d -> snapshot %.1f: %d newly retreated, %d total forced.\n', ...
+                    yr, greene_yrs(gi), nnz(newly_forced), nnz(collapsed_so_far));
         end
-
-        % Only allow Greene to prescribe ice-front RETREAT relative to the
-        % model's initial md.mask.ice_levelset. At vertices that start with
-        % no ice (ice_levelset > 0), some Greene years spuriously show ice
-        % (advance) -- do not apply those; leave unconstrained (NaN) instead
-        % of forcing ice into a region the model never had ice.
-        no_ice0      = md.mask.ice_levelset > 0;                  % nVerts x 1
-        advance_mask = repmat(no_ice0, 1, length(model_years)) & (spclevelset_mat < 0);
-        fprintf('  Suppressing %d/%d Greene advance entries (no ice -> ice) relative to initial mask.\n', ...
-                nnz(advance_mask), numel(advance_mask));
-        spclevelset_mat(advance_mask) = NaN;
 
         greene_spclevelset = [spclevelset_mat ; model_years];
         save([preproc_front 'Greene_spclevelset_' num2str(start_year) '_' num2str(end_year) '.mat'], ...
              'greene_spclevelset', '-v7.3');
-        fprintf('Saved Greene levelset mat.\n');
+        fprintf('Saved Greene levelset mat (retreat-only ratchet, no -1 anywhere).\n');
     end % }}}
 
     % ================================================================= Step 4
@@ -358,6 +378,7 @@ function md = hist_run_tune_MRI_ESM(steps, loadonly)
         md.calving.calvingrate         = zeros(md.mesh.numberofvertices,1);
         md.frontalforcings.meltingrate = zeros(md.mesh.numberofvertices,1);
         md.transient.ismovingfront = 1;
+        md.levelset.migration_max  = 2863.78;   % m/yr -- matches the projection's own cap and hist_run_tune_CESM_WACCM.m's own Relaxed_CESM_WACCM step (same reasoning: ISSM's default of 1e12 m/yr is effectively unconstrained, which matters a great deal now that most of the domain is free (NaN) under the retreat-only ratchet -- added 2026-10-01 for consistency across models and across the historical/projection boundary).
         load([preproc_front 'Greene_spclevelset_' num2str(start_year) '_' num2str(end_year) '.mat']);
         md.levelset.spclevelset = greene_spclevelset;
 
@@ -457,6 +478,7 @@ function md = hist_run_tune_MRI_ESM(steps, loadonly)
         md.calving.calvingrate         = zeros(md.mesh.numberofvertices,1);
         md.frontalforcings.meltingrate = zeros(md.mesh.numberofvertices,1);
         md.transient.ismovingfront =1;
+        md.levelset.migration_max  = 2863.78;   % m/yr -- see Relaxed_MRI_ESM2's own comment above (same cap as CESM/the projection, added 2026-10-01 for consistency)
         load([preproc_front 'Greene_spclevelset_' num2str(start_year) '_' num2str(end_year) '.mat']);
         md.levelset.spclevelset = greene_spclevelset;
 
@@ -470,7 +492,7 @@ function md = hist_run_tune_MRI_ESM(steps, loadonly)
             savemodel(org, md);
         end
     end % }}}
-    % ================================================================= Step 
+    % ================================================================= Step 6
 % if perform(org, 'Assign_Regions') % {{{
 % Build & save the WAIS / EAIS / Peninsula macro-region mask
 % (vertices + elements), analogous to tuning_func.m's 'Assign_Basins'
@@ -537,7 +559,7 @@ function md = hist_run_tune_MRI_ESM(steps, loadonly)
 % saveas(gcf, './figures/Assign_Regions_mass_trend.png');
 % fprintf('Saved: figures/Assign_Regions_mass_trend.png\n');
 % end % }}}
-    % ================================================================= Step 6
+    % ================================================================= Step 7
     if perform(org, 'HistRun_Validation') % {{{
         % Three validation figures before Otosaka comparison:
         %   Fig 1: Total AIS SMB over time  (model TotalSmb vs integrated smb_forcing)
@@ -749,7 +771,7 @@ function md = hist_run_tune_MRI_ESM(steps, loadonly)
     end % }}}
 
 
-    % ================================================================= Step 7
+    % ================================================================= Step 8
     if perform(org, 'HistRun_Assessment') % {{{
         md = loadmodel(org, 'HistRun');
         assess_vs_otosaka(md, region_mask_file, start_year, ...
@@ -758,7 +780,7 @@ function md = hist_run_tune_MRI_ESM(steps, loadonly)
             'Cumulative mass change vs Otosaka et al.  (MRI-ESM2-0 hist+ssp126)');
     end % }}}
 
-    % ================================================================= Step8
+    % ================================================================= Step9
     if perform(org, 'HistRun_CorrectSMB') % {{{
         % Rerun the full 1995-2020 transient with the RACMO climatology
         % component of the SMB forcing scaled per region by 1+p_calc_corr
@@ -868,6 +890,7 @@ function md = hist_run_tune_MRI_ESM(steps, loadonly)
         md.calving.calvingrate         = zeros(md.mesh.numberofvertices,1);
         md.frontalforcings.meltingrate = zeros(md.mesh.numberofvertices,1);
         md.transient.ismovingfront = 1;
+        md.levelset.migration_max  = 2863.78;   % m/yr -- see Relaxed_MRI_ESM2's own comment above (same cap as CESM/the projection, added 2026-10-01 for consistency)
         load([preproc_front 'Greene_spclevelset_' num2str(start_year) '_' num2str(end_year) '.mat']);
         md.levelset.spclevelset = greene_spclevelset;
 
