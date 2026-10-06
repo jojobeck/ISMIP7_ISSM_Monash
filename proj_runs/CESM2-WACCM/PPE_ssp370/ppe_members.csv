@@ -1,0 +1,10 @@
+p_number,forcing,ssp,run_type,difference_from_main
+P001,CESM2-WACCM,ssp370,frozenfront,"ice front frozen at 2015 extent"
+P002,CESM2-WACCM,ssp370,frozenfront,"K = 95th percentile; ice front frozen at 2015 extent"
+P003,CESM2-WACCM,ssp370,frozenfront,"K = 5th percentile; ice front frozen at 2015 extent"
+P004,CESM2-WACCM,ssp370,yearly,"migration_max = Greene maximum (96521.91 m/yr)"
+P005,CESM2-WACCM,ssp370,yearly,"migration_max = Greene minimum (203.82 m/yr)"
+P006,CESM2-WACCM,ssp370,yearly,"+ eigencalving (coeff = 6.592e15 m*s)"
+P007,CESM2-WACCM,ssp370,yearly,"migration_max = Greene maximum (96521.91 m/yr), + eigencalving (coeff = 6.592e15 m*s)"
+P008,CESM2-WACCM,ssp370,yearly,"migration_max = Greene minimum (203.82 m/yr), + eigencalving (coeff = 6.592e15 m*s)"
+P009,CESM2-WACCM,ssp370,yearly,"SMB lapserate off"
