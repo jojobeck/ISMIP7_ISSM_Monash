@@ -19,9 +19,15 @@ function proj_run_PPE_yearly_ssp585(X, start_year, end_year, waitonlock_seconds)
 %   X='p018'  migration_max = Greene MINIMUM,                          + eigencalving
 %   X='p019'  migration_max = Greene MEAN (core value), no eigencalving,
 %             SMB surface-elevation feedback SWITCHED OFF (b_pos=b_neg=0)
+%   X='p020'  migration_max = Greene MEAN (core value), no eigencalving,
+%             K = 95th percentile (gamma0_local_95th) -- high basal melt
+%             with the moving (collapse-mask) front; the moving-front
+%             counterpart of frozen-front P012. Added 2026-10-07.
 %
 % Each X internally resolves {migration_max, eigencalving on/off,
-% smb_feedback on/off} AND this PPE member's own P-number (P014-P019).
+% smb_feedback on/off, K variant} AND this PPE member's own P-number
+% (P014-P020). K is 'mode' (same as the core run) for every member except
+% p020.
 %
 % EIGENCALVING (p016-p018): md.calving is REPLACED with calvinglevermann
 % (coeff below), on top of the SAME floating-gated collapse-mask forcing
@@ -80,7 +86,7 @@ function proj_run_PPE_yearly_ssp585(X, start_year, end_year, waitonlock_seconds)
 %     addpath('$ISSM_DIR/lib'); proj_run_PPE_yearly_ssp585('p014',2015,2015,3600), quit"
 
     if nargin < 1 || isempty(X)
-        error('X is required: ''p014''|''p015''|''p016''|''p017''|''p018''|''p019''.');
+        error('X is required: ''p014''|''p015''|''p016''|''p017''|''p018''|''p019''|''p020''.');
     end
     if nargin < 2 || isempty(start_year)
         start_year = 2015;
@@ -98,6 +104,7 @@ function proj_run_PPE_yearly_ssp585(X, start_year, end_year, waitonlock_seconds)
     MIG_MAX_GREENE_MIN  = 203.82;
     EIGENCALVING_COEFF  = 6.592e15;   % m*s -- see module docstring for derivation
 
+    K_variant = 'mode';   % same K as the core run -- overridden by p020 only
     switch X
         case 'p014'
             P_number = 'P014'; migration_max = MIG_MAX_GREENE_MAX;  use_eigencalving = false; smb_feedback_on = true;
@@ -111,8 +118,11 @@ function proj_run_PPE_yearly_ssp585(X, start_year, end_year, waitonlock_seconds)
             P_number = 'P018'; migration_max = MIG_MAX_GREENE_MIN;  use_eigencalving = true;  smb_feedback_on = true;
         case 'p019'
             P_number = 'P019'; migration_max = MIG_MAX_GREENE_MEAN; use_eigencalving = false; smb_feedback_on = false;
+        case 'p020'
+            P_number = 'P020'; migration_max = MIG_MAX_GREENE_MEAN; use_eigencalving = false; smb_feedback_on = true;
+            K_variant = '95th';
         otherwise
-            error('Unrecognised X ''%s'' -- expected ''p014''|''p015''|''p016''|''p017''|''p018''|''p019''.', X);
+            error('Unrecognised X ''%s'' -- expected ''p014''|''p015''|''p016''|''p017''|''p018''|''p019''|''p020''.', X);
     end
     % -----------------------------------------------------------------------
 
@@ -159,7 +169,17 @@ function proj_run_PPE_yearly_ssp585(X, start_year, end_year, waitonlock_seconds)
     % files). ----
     load([preproc_ocean 'Basins/Imbie2_extrap_2km_BasinOnElements.mat']);  % -> basinid
     load([preproc_ocean 'tf_depths.mat']);                                 % -> tf_depths
-    load([preproc_ocean 'gamma0_local.mat']);                              % -> gamma0_local (mode -- PPE K is not varied in this script)
+    % K (gamma_0): mode for every member except p020 (95th percentile) --
+    % same gamma0_local.mat variants as proj_run_PPE_frozenfront_ssp585.m.
+    loaded_gamma0 = load([preproc_ocean 'gamma0_local.mat']);
+    switch K_variant
+        case 'mode'
+            gamma0_local = loaded_gamma0.gamma0_local;
+        case '95th'
+            gamma0_local = loaded_gamma0.gamma0_local_95th;
+    end
+    clear loaded_gamma0;
+    fprintf('[%s] K variant: %s\n', X, K_variant);
     tmp = load([preproc_ocean 'dT_correction.mat'], 'dT_correction');
     delta_t = tmp.dT_correction;
     unique_basinid = unique(basinid);
@@ -241,8 +261,8 @@ function proj_run_PPE_yearly_ssp585(X, start_year, end_year, waitonlock_seconds)
 
         % --- Ocean: slice the full TF series to this 1-year window (same
         % backward-looking "most recent at-or-before year" logic as the
-        % core yearly script). K (gamma_0) is NOT varied in this script --
-        % that is p011-p013's own axis (proj_run_PPE_frozenfront_ssp585.m). ---
+        % core yearly script). K (gamma_0) = gamma0_local, i.e. mode for every
+        % member except p020 (95th percentile, set above). ---
         tf_year = tf_proj;
         for di = 1:numel(tf_year)
             c = tf_year{di};

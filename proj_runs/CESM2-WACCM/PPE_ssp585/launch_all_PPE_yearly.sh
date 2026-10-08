@@ -65,11 +65,13 @@ submit_member() {
 
 # ---- Comment out any line below to skip that member on this run -------
 submit_member p014   # migration_max = Greene maximum (96521.91 m/yr), no eigencalving
-submit_member p015   # migration_max = Greene minimum (203.82 m/yr),   no eigencalving
+# submit_member p015   # migration_max = Greene minimum (203.82 m/yr),   no eigencalving
 submit_member p016   # migration_max = Greene mean (core value, 2863.78 m/yr), + eigencalving
 submit_member p017   # migration_max = Greene maximum,                          + eigencalving
-submit_member p018   # migration_max = Greene minimum,                          + eigencalving
+# submit_member p018   # migration_max = Greene minimum,                          + eigencalving
 submit_member p019   # migration_max = Greene mean (core value), no eigencalving, SMB feedback OFF
+# P020 is submitted on its own (not by this launcher), from this folder:
+#   qsub -v X=p020 -N PPE_p020 -o SubmitPPEyearly_p020.outlog -e SubmitPPEyearly_p020.errlog submit_PPE_member_yearly.sh
 
 echo ""
 echo "Done. Check with: qstat -u \$USER"

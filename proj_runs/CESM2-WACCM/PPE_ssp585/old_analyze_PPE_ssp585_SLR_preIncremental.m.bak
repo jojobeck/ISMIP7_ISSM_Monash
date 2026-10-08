@@ -1,4 +1,4 @@
-function analyze_PPE_ssp585_SLR(steps, reload_all)
+function analyze_PPE_ssp585_SLR(steps)
 % ANALYZE_PPE_SSP585_SLR  Sea-level-rise (SLE) comparison across every
 %   CESM2-WACCM ssp585 PPE (Perturbed-Parameter-Ensemble) member, plus the
 %   core (non-PPE) ssp585 run and the CESM2-WACCM historical run, all on one
@@ -55,47 +55,21 @@ function analyze_PPE_ssp585_SLR(steps, reload_all)
 %   1  ComputeSLR   loads historical + core ssp585 + every ppe_members.csv
 %                    row's model output, computes its SLE curve, saves to
 %                    postprocessed_data/SLR/SLR_PPE_ssp585_CESM2-WACCM.mat
-%                    INCREMENTAL: curves already in that .mat are reused if
-%                    no newer output exists on disk (yearly: same last
-%                    yearly file; frozen front: same number of segments);
-%                    only new / extended members are (re)loaded. Pass
-%                    reload_all=true to rebuild everything from scratch.
-%   2  PlotSLR       reads that .mat back and plots the members listed in
-%                    MEMBERS_TO_PLOT (below). Saves THREE figures to
-%                    postprocessed_data/figures/SLR/:
+%   2  PlotSLR       reads that .mat back and plots every curve. Saves
+%                    THREE figures to postprocessed_data/figures/SLR/:
 %                      PPE_ssp585_CESM2-WACCM.png                 (full span)
 %                      PPE_ssp585_CESM2-WACCM_zoom_2015_2040.png  (early zoom)
 %                      PPE_ssp585_CESM2-WACCM_zoom_2280_2300.png  (end-of-run zoom)
 %
 % Usage (run from anywhere; paths are resolved relative to this script's
 % own location, not the current directory):
-%   analyze_PPE_ssp585_SLR([1])           % compute (incremental) + save only
-%   analyze_PPE_ssp585_SLR([2])           % plot only (needs step 1 already run)
-%   analyze_PPE_ssp585_SLR([1 2])         % both (default)
-%   analyze_PPE_ssp585_SLR([1 2], true)   % reload every run from the model files
+%   analyze_PPE_ssp585_SLR([1])     % compute + save only
+%   analyze_PPE_ssp585_SLR([2])     % plot only (needs step 1 already run)
+%   analyze_PPE_ssp585_SLR([1 2])   % both (default)
 
     if nargin < 1 || isempty(steps)
         steps = [1 2];
     end
-    if nargin < 2 || isempty(reload_all)
-        reload_all = false;
-    end
-
-    % ---- PPE members drawn in step 2: comment out a line to leave it off --
-    % (step 1 still computes every ppe_members.csv row; colours stay fixed
-    % per member, so hiding one does not recolour the others)
-    MEMBERS_TO_PLOT = { ...
-        'P011', ...   % ice front frozen at 2015 extent
-        'P012', ...   % K = 95th percentile; front frozen
-        'P013', ...   % K = 5th percentile; front frozen
-        'P014', ...   % migration_max = Greene maximum
-        'P015', ...   % migration_max = Greene minimum
-        'P016', ...   % + eigencalving
-        'P017', ...   % Greene maximum + eigencalving
-        'P018', ...   % Greene minimum + eigencalving
-        'P019', ...   % SMB lapse rate off
-        'P020', ...   % K = 95th percentile, moving front, no eigencalving
-        };
 
     here = fileparts(mfilename('fullpath'));   % this folder: proj_runs/CESM2-WACCM/PPE_ssp585/
     root = [here '/../../../'];                % -> repo root
@@ -117,65 +91,34 @@ function analyze_PPE_ssp585_SLR(steps, reload_all)
 
         SLR = struct('p_number', {}, 'label', {}, 'run_type', {}, 'time', {}, 'sle', {});
 
-        % ------------------------------------------------------------ previous results
-        % Reused unless reload_all. vaf_ref is saved alongside SLR so the
-        % historical run does not have to be reloaded for new members (a
-        % .mat written before this was added has no vaf_ref -> the
-        % historical run is loaded once more below).
-        SLR_old = SLR;
-        vaf_ref = [];
-        if ~reload_all && exist(matfile_out, 'file')
-            old = load(matfile_out);
-            SLR_old = old.SLR;
-            if isfield(old, 'vaf_ref'), vaf_ref = old.vaf_ref; end
-            fprintf('Reusing %d saved curves from %s where up to date\n', numel(SLR_old), matfile_out);
-        end
-
         % ------------------------------------------------------------ Historical
         hist_file = [root 'hist_runs/CESM2-WACCM/Models/AIS_ISMIP7_Hist1995_2014_HistRun_1995_2014.mat'];
-        idx_old = find(strcmp({SLR_old.run_type}, 'historical'), 1);
-        if ~isempty(idx_old) && ~isempty(vaf_ref)
-            SLR(end+1) = SLR_old(idx_old);
-            fprintf('Historical: reused\n');
-        else
-            fprintf('Loading CESM2-WACCM historical ...\n');
-            try
-                [time, vaf] = load_vaf_from_matfile(hist_file);
-                vaf_ref = vaf(1);
-                sle = -(vaf - vaf(1)) * rho_ice / rho_sw / A_ocean;
-                SLR(end+1) = struct('p_number', '', 'label', 'CESM2-WACCM historical', ...
-                                     'run_type', 'historical', 'time', time, 'sle', sle); %#ok<AGROW>
-                fprintf('  %d years (%d-%d), final SLE = %.4f m\n', numel(time), time(1), time(end), sle(end));
-            catch ME
-                fprintf('  SKIP historical -- not available (%s): %s\n', hist_file, ME.message);
-            end
+        fprintf('Loading CESM2-WACCM historical ...\n');
+        vaf_ref = [];
+        try
+            [time, vaf] = load_vaf_from_matfile(hist_file);
+            vaf_ref = vaf(1);
+            sle = -(vaf - vaf(1)) * rho_ice / rho_sw / A_ocean;
+            SLR(end+1) = struct('p_number', '', 'label', 'CESM2-WACCM historical', ...
+                                 'run_type', 'historical', 'time', time, 'sle', sle); %#ok<AGROW>
+            fprintf('  %d years (%d-%d), final SLE = %.4f m\n', numel(time), time(1), time(end), sle(end));
+        catch ME
+            fprintf('  SKIP historical -- not available (%s): %s\n', hist_file, ME.message);
         end
 
         % ------------------------------------------------------------ Core ssp585
         if ~isempty(vaf_ref)
+            fprintf('Loading core ssp585 ...\n');
             core_modeldir = [root 'proj_runs/CESM2-WACCM/ssp585/Models_yearly/'];
-            idx_old = find(strcmp({SLR_old.run_type}, 'core'), 1);
             try
-                disk_years = discover_yearly_files(core_modeldir, 'ssp585');
-                disk_stamp = max(disk_years);
-            catch
-                disk_stamp = NaN;
-            end
-            if ~isempty(idx_old) && SLR_old(idx_old).time(end) + 1 == disk_stamp
-                SLR(end+1) = SLR_old(idx_old);
-                fprintf('Core ssp585: reused (up to date)\n');
-            else
-                fprintf('Loading core ssp585 ...\n');
-                try
-                    [t_raw, vaf] = load_yearly_vaf_series(core_modeldir, 'ssp585');
-                    time = round(t_raw) - 1;
-                    sle  = -(vaf - vaf_ref) * rho_ice / rho_sw / A_ocean;
-                    SLR(end+1) = struct('p_number', '', 'label', 'Core ssp585 (baseline)', ...
-                                         'run_type', 'core', 'time', time, 'sle', sle); %#ok<AGROW>
-                    fprintf('  %d years (%d-%d), final SLE = %.4f m\n', numel(time), time(1), time(end), sle(end));
-                catch ME
-                    fprintf('  SKIP core ssp585 -- not available yet (%s): %s\n', core_modeldir, ME.message);
-                end
+                [t_raw, vaf] = load_yearly_vaf_series(core_modeldir, 'ssp585');
+                time = round(t_raw) - 1;
+                sle  = -(vaf - vaf_ref) * rho_ice / rho_sw / A_ocean;
+                SLR(end+1) = struct('p_number', '', 'label', 'Core ssp585 (baseline)', ...
+                                     'run_type', 'core', 'time', time, 'sle', sle); %#ok<AGROW>
+                fprintf('  %d years (%d-%d), final SLE = %.4f m\n', numel(time), time(1), time(end), sle(end));
+            catch ME
+                fprintf('  SKIP core ssp585 -- not available yet (%s): %s\n', core_modeldir, ME.message);
             end
         else
             fprintf('SKIP core ssp585 -- no historical VAF_ref available.\n');
@@ -193,35 +136,6 @@ function analyze_PPE_ssp585_SLR(steps, reload_all)
                 diff_str = char(strtrim(string(ppe_tbl.difference_from_main(i))));
                 label    = sprintf('%s: %s', p_number, diff_str);
 
-                matfile1 = [here '/Models_' p_number '/AIS_ISMIP7_PPE_' p_number '_ProjRun_2015_2150.mat'];
-                matfile2 = [here '/Models_' p_number '/AIS_ISMIP7_PPE_' p_number '_ProjRun_2151_2300.mat'];
-                modeldir = [here '/Models_' p_number '/'];
-
-                % Up-to-date check against what is on disk now:
-                %   yearly      -> last yearly file year (= saved last year + 1)
-                %   frozenfront -> number of gathered segments (1 or 2)
-                idx_old = find(strcmp({SLR_old.p_number}, p_number), 1);
-                switch run_type
-                    case 'frozenfront'
-                        disk_stamp = (exist(matfile1, 'file') > 0) + (exist(matfile2, 'file') > 0);
-                        if ~isempty(idx_old)
-                            saved_stamp = 1 + (SLR_old(idx_old).time(end) > 2151);
-                        end
-                    case 'yearly'
-                        disk_stamp = ppe_yearly_last_file_year(modeldir, p_number);
-                        if ~isempty(idx_old)
-                            saved_stamp = SLR_old(idx_old).time(end) + 1;
-                        end
-                    otherwise
-                        error('Unrecognised run_type ''%s'' in %s row %d.', run_type, csv_file, i);
-                end
-                if ~isempty(idx_old) && isequal(saved_stamp, disk_stamp)
-                    SLR(end+1) = SLR_old(idx_old); %#ok<AGROW>
-                    SLR(end).label = label;   % pick up edited csv descriptions
-                    fprintf('%s: reused (up to date, %d-%d)\n', p_number, SLR(end).time(1), SLR(end).time(end));
-                    continue;
-                end
-
                 fprintf('Loading %s (%s) ...\n', p_number, run_type);
                 try
                     switch run_type
@@ -236,6 +150,8 @@ function analyze_PPE_ssp585_SLR(steps, reload_all)
                             % so a member whose second segment hasn't
                             % finished/gathered yet still plots its first
                             % segment's progress rather than being skipped.
+                            matfile1 = [here '/Models_' p_number '/AIS_ISMIP7_PPE_' p_number '_ProjRun_2015_2150.mat'];
+                            matfile2 = [here '/Models_' p_number '/AIS_ISMIP7_PPE_' p_number '_ProjRun_2151_2300.mat'];
                             [time, vaf] = load_vaf_from_matfile(matfile1);
                             try
                                 [time2, vaf2] = load_vaf_from_matfile(matfile2);
@@ -245,8 +161,11 @@ function analyze_PPE_ssp585_SLR(steps, reload_all)
                                 % segment 2 not finished/gathered yet -- plot segment 1 alone
                             end
                         case 'yearly'
+                            modeldir = [here '/Models_' p_number '/'];
                             [t_raw, vaf] = load_ppe_yearly_vaf_series(modeldir, p_number);
                             time = round(t_raw) - 1;
+                        otherwise
+                            error('Unrecognised run_type ''%s'' in %s row %d.', run_type, csv_file, i);
                     end
                     sle = -(vaf - vaf_ref) * rho_ice / rho_sw / A_ocean;
                     SLR(end+1) = struct('p_number', p_number, 'label', label, ...
@@ -262,7 +181,7 @@ function analyze_PPE_ssp585_SLR(steps, reload_all)
 
         outdir = [root 'postprocessed_data/SLR/'];
         if ~exist(outdir, 'dir'), mkdir(outdir); end
-        save(matfile_out, 'SLR', 'vaf_ref', '-v7.3');
+        save(matfile_out, 'SLR', '-v7.3');
         fprintf('\nSaved %d curves to %s\n', numel(SLR), matfile_out);
     end % }}}
 
@@ -272,14 +191,11 @@ function analyze_PPE_ssp585_SLR(steps, reload_all)
         SLR = loaded.SLR;
 
         % Okabe-Ito-extended qualitative palette, one colour per PPE member,
-        % assigned by that member's row in ppe_members.csv -- so hiding a
-        % member via MEMBERS_TO_PLOT (or a member with no output yet) does
-        % not recolour the others.
+        % assigned by that member's position among the PPE (non-historical,
+        % non-core) entries -- stable under future CSV renumbering.
         palette = { [0.9020 0.6235 0],    [0.3373 0.7059 0.9137], [0 0.6196 0.4510], ...
                     [0.8000 0.7000 0.00], [0 0.4470 0.7410],      [0.8353 0.3686 0], ...
-                    [0.8 0.4745 0.6549],  [0.4660 0.6740 0.1880], [0.4940 0.1840 0.5560], ...
-                    [0.6350 0.0780 0.1840] };
-        csv_p = cellstr(strtrim(string(readtable(csv_file).p_number)));
+                    [0.8 0.4745 0.6549],  [0.4660 0.6740 0.1880], [0.4940 0.1840 0.5560] };
 
         figdir = [root 'postprocessed_data/figures/SLR/'];
         if ~exist(figdir, 'dir'), mkdir(figdir); end
@@ -304,13 +220,7 @@ function analyze_PPE_ssp585_SLR(steps, reload_all)
         end
         for k = 1:numel(idx_ppe)
             m = SLR(idx_ppe(k));
-            if ~ismember(m.p_number, MEMBERS_TO_PLOT)
-                fprintf('Not plotted (not in MEMBERS_TO_PLOT): %s\n', m.p_number);
-                continue;
-            end
-            i_csv = find(strcmp(csv_p, m.p_number), 1);
-            if isempty(i_csv), i_csv = k; end
-            col = palette{mod(i_csv-1, numel(palette)) + 1};
+            col = palette{mod(k-1, numel(palette)) + 1};
             % Solid = frozen ice front (ismovingfront=0); dashed = every
             % other (moving-front) PPE member -- see module docstring.
             if strcmp(m.run_type, 'frozenfront'), ls = '-'; else, ls = '--'; end
@@ -455,22 +365,5 @@ function [time, vaf] = load_ppe_yearly_vaf_series(modeldir, p_number)
         time = [time, t_raw(keep)]; %#ok<AGROW>
         vaf  = [vaf,  vaf_raw(keep)]; %#ok<AGROW>
         clear loaded ts t_raw keep vaf_raw;
-    end
-end
-
-function last_year = ppe_yearly_last_file_year(modeldir, p_number)
-% Year of the newest AIS_ISMIP7_PPE_<p_number>_yearly_<year>.mat on disk
-% (appliedcollapse files excluded), NaN if there are none. Only reads the
-% directory listing -- used by step 1 to decide whether a saved curve is
-% still up to date.
-    files = dir([modeldir 'AIS_ISMIP7_PPE_' p_number '_yearly_*.mat']);
-    names = {files.name};
-    names = names(~contains(names, 'appliedcollapse'));
-    tok   = regexp(names, '_yearly_(\d+)\.mat$', 'tokens', 'once');
-    tok   = tok(~cellfun(@isempty, tok));
-    if isempty(tok)
-        last_year = NaN;
-    else
-        last_year = max(cellfun(@(c) str2double(c{1}), tok));
     end
 end
